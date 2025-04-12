@@ -21,6 +21,8 @@ from home_assistant_streamdeck_yaml import (
     ASSETS_PATH,
     DEFAULT_CONFIG,
     Button,
+    Dial,
+    DialEventType,
     Config,
     IconWarning,
     InactivityState,
@@ -36,6 +38,7 @@ from home_assistant_streamdeck_yaml import (
     _light_page,
     _named_to_hex,
     _on_press_callback,
+    _on_dial_event_callback,
     _render_jinja,
     _states,
     _to_filename,
@@ -1200,6 +1203,11 @@ async def test_return_to_home(
     state: dict[str, dict[str, Any]],
 ) -> None:
     """Test that the return to home works."""
+    # Configure mock_deck for dial-related methods
+    mock_deck.dial_count.return_value = 1
+    mock_deck.touchscreen_image_format.return_value = {"size": (800, 100)}
+    mock_deck.set_touchscreen_image.return_value = None
+    
     return_to_home_after = 0.8
     assert return_to_home_after
     shorter_than_return_to_home_after = return_to_home_after - 0.1
@@ -1219,6 +1227,7 @@ async def test_return_to_home(
     second = Page(
         name="second",
         buttons=[Button(special_type="empty")],
+        dials=[Dial()],
     )
     anon = Page(
         name="anon",
@@ -1233,6 +1242,14 @@ async def test_return_to_home(
             }
         )
     inactivity_state = InactivityState()
+    
+    async def do_dial_action() -> None:
+        print(f"Config type in do_dial_action: {type(config)}")
+        print(f"Config return_to_home_after_no_presses: {config.return_to_home_after_no_presses}")
+        dial = _on_dial_event_callback(
+            inactivity_state, websocket_mock, state, config
+        )
+        await dial(mock_deck, 0, DialEventType.TURN, 1)
     
     # We need to have a release otherwise it will be timing for a long press
     async def press_and_release(key: int) -> None:
@@ -1272,4 +1289,11 @@ async def test_return_to_home(
     await asyncio.sleep(shorter_than_return_to_home_after)  # shorter than delay, should still remain on page
     assert config._detached_page is None
     assert config.current_page() == second   
-    
+    # Here would be a good place to do a dial / touch test
+    await do_dial_action()
+    await asyncio.sleep(shorter_than_return_to_home_after)  # shorter than delay, should still remain on page
+    assert config._detached_page is None
+    assert config.current_page() == second     
+    await asyncio.sleep(longer_and_shorter_delta)  # longer than delay should then switch to home
+    assert config._detached_page is None
+    assert config.current_page() == home       

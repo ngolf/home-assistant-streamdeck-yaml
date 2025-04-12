@@ -2075,19 +2075,23 @@ async def update_interaction(
     complete_state: StateDict,
     deck: StreamDeck,
 ) -> None:
+    print(f"Config type in update_interaction: {type(config)}")  # Debug
     state.last_interaction_time = time.time()
     if state.inactivity_task:
         state.inactivity_task.cancel()
     if config.return_to_home_after_no_presses:
-        async def check_inactivity():
-            duration = config.return_to_home_after_no_presses["duration"]
-            home_page = config.return_to_home_after_no_presses["home_page"]
+        # cfg is here passed as an argument, as there was some issues in test 
+        # suggesting closure rleated issues.
+        async def check_inactivity(cfg: Config) -> None:
+            print(f"Config type in check_inactivity: {type(cfg)}")  # Debug
+            duration = cfg.return_to_home_after_no_presses["duration"]
+            home_page = cfg.return_to_home_after_no_presses["home_page"]
             await asyncio.sleep(duration)
             if time.time() - state.last_interaction_time >= duration:
                 console.log(f"No activity for {duration}s, returning to {home_page}")
-                if config._detached_page is not None:
+                if cfg._detached_page is not None:
                     console.log("Clearing detached page")
-                    config._detached_page = None
+                    cfg._detached_page = None
                 dummy_button = Button(
                     special_type="go-to-page",
                     special_type_data=home_page,
@@ -2095,15 +2099,15 @@ async def update_interaction(
                 await _handle_key_press(
                     websocket,
                     complete_state,
-                    config,
+                    cfg,
                     dummy_button,
                     deck,
                     is_long_press=False,
                 )
                 console.log(
-                    f"Completed return to {home_page}, current index: {config._current_page_index}",
+                    f"Completed return to {home_page}, current index: {cfg._current_page_index}",
                 )
-        state.inactivity_task = asyncio.create_task(check_inactivity())          
+        state.inactivity_task = asyncio.create_task(check_inactivity(config))
             
 def _on_touchscreen_event_callback(
     inactivity_state: InactivityState, 
