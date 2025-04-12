@@ -2075,23 +2075,19 @@ async def update_interaction(
     complete_state: StateDict,
     deck: StreamDeck,
 ) -> None:
-    print(f"Config type in update_interaction: {type(config)}")  # Debug
     state.last_interaction_time = time.time()
     if state.inactivity_task:
         state.inactivity_task.cancel()
     if config.return_to_home_after_no_presses:
-        # cfg is here passed as an argument, as there was some issues in test 
-        # suggesting closure rleated issues.
-        async def check_inactivity(cfg: Config) -> None:
-            print(f"Config type in check_inactivity: {type(cfg)}")  # Debug
-            duration = cfg.return_to_home_after_no_presses["duration"]
-            home_page = cfg.return_to_home_after_no_presses["home_page"]
+        async def check_inactivity() -> None:
+            duration = config.return_to_home_after_no_presses["duration"]
+            home_page = config.return_to_home_after_no_presses["home_page"]
             await asyncio.sleep(duration)
             if time.time() - state.last_interaction_time >= duration:
                 console.log(f"No activity for {duration}s, returning to {home_page}")
-                if cfg._detached_page is not None:
+                if config._detached_page is not None:
                     console.log("Clearing detached page")
-                    cfg._detached_page = None
+                    config._detached_page = None
                 dummy_button = Button(
                     special_type="go-to-page",
                     special_type_data=home_page,
@@ -2099,15 +2095,15 @@ async def update_interaction(
                 await _handle_key_press(
                     websocket,
                     complete_state,
-                    cfg,
+                    config,
                     dummy_button,
                     deck,
                     is_long_press=False,
                 )
                 console.log(
-                    f"Completed return to {home_page}, current index: {cfg._current_page_index}",
+                    f"Completed return to {home_page}, current index: {config._current_page_index}",
                 )
-        state.inactivity_task = asyncio.create_task(check_inactivity(config))
+        state.inactivity_task = asyncio.create_task(check_inactivity())
             
 def _on_touchscreen_event_callback(
     inactivity_state: InactivityState, 
@@ -2236,7 +2232,7 @@ async def handle_dial_event(
 
 
 def _on_dial_event_callback(
-    inactivity_state: InactivityState, 
+    state: InactivityState,
     websocket: websockets.WebSocketClientProtocol,
     complete_state: StateDict,
     config: Config,
@@ -2253,9 +2249,10 @@ def _on_dial_event_callback(
         console.log(
             f"Dial {dial_num} event {event_type} at value {value} has been called",
         )
+        await update_interaction(state, config, websocket, complete_state, deck)
         dial = config.dial_sorted(dial_num)
         assert dial is not None
-        await update_interaction(inactivity_state, deck, config, websocket, complete_state) # Update for inactivity monitoring  
+
         async def callback() -> None:
             await handle_dial_event(
                 websocket,
@@ -2280,7 +2277,7 @@ def _on_dial_event_callback(
                 deck,
                 event_type,
                 value,
-                True,  # noqa: FBT003
+                True,
             )
             return
 

@@ -1203,11 +1203,20 @@ async def test_return_to_home(
     state: dict[str, dict[str, Any]],
 ) -> None:
     """Test that the return to home works."""
-    # Configure mock_deck for dial-related methods
-    mock_deck.dial_count.return_value = 1
-    mock_deck.touchscreen_image_format.return_value = {"size": (800, 100)}
-    mock_deck.set_touchscreen_image.return_value = None
-    
+    # Configure mock_deck
+    def preserve_callback(callback):
+        # Ensure callback arguments are not mocked
+        return callback
+    mock_deck.set_dial_callback_async = Mock(side_effect=preserve_callback)
+    mock_deck.set_key_callback_async = Mock(side_effect=preserve_callback)
+    mock_deck.set_touchscreen_callback_async = Mock(side_effect=preserve_callback)
+    mock_deck.dial_count = Mock(return_value=1)
+    mock_deck.touchscreen_image_format = Mock(return_value={"size": (800, 100)})
+    mock_deck.set_touchscreen_image = Mock(return_value=None)
+    mock_deck.set_key_image = Mock(return_value=None)
+    mock_deck.reset = Mock(return_value=None)
+    mock_deck.set_brightness = Mock(return_value=None)
+
     return_to_home_after = 0.8
     assert return_to_home_after
     shorter_than_return_to_home_after = return_to_home_after - 0.1
@@ -1222,27 +1231,27 @@ async def test_return_to_home(
         buttons=[
             Button(special_type="go-to-page", special_type_data="anon"),
             Button(special_type="go-to-page", special_type_data="second"),
-            ],
+        ],
     )
     second = Page(
         name="second",
         buttons=[Button(special_type="empty")],
-        dials=[Dial()],
+        dials=[Dial(dial_event_type="TURN", service="test.service")],
     )
     anon = Page(
         name="anon",
         buttons=[Button(text="yolo"), Button(text="foo", delay=0.1)],
     )
     config = Config(
-        pages=[home,second], 
-        anonymous_pages=[anon], 
+        pages=[home, second],
+        anonymous_pages=[anon],
         return_to_home_after_no_presses={
-            "home_page": "home", 
+            "home_page": "home",
             "duration": return_to_home_after,
-            }
-        )
+        },
+    )
     inactivity_state = InactivityState()
-    
+
     async def do_dial_action() -> None:
         print(f"Config type in do_dial_action: {type(config)}")
         print(f"Config return_to_home_after_no_presses: {config.return_to_home_after_no_presses}")
@@ -1250,50 +1259,48 @@ async def test_return_to_home(
             inactivity_state, websocket_mock, state, config
         )
         await dial(mock_deck, 0, DialEventType.TURN, 1)
-    
-    # We need to have a release otherwise it will be timing for a long press
+        print(f"Mock deck calls after dial: {mock_deck.mock_calls}")
+        print(f"Websocket mock calls after dial: {websocket_mock.mock_calls}")
+
     async def press_and_release(key: int) -> None:
+        print(f"Pressing key {key}")
         press = _on_press_callback(inactivity_state, websocket_mock, state, config)
         await press(mock_deck, key, key_pressed=True)
         await press(mock_deck, key, key_pressed=False)
-        
+        print(f"Mock deck calls after press {key}: {mock_deck.mock_calls}")
+        print(f"Websocket mock calls after press {key}: {websocket_mock.mock_calls}")
+
     assert config._current_page_index == 0
     assert config._detached_page is None
-    await(press_and_release(0))
+    await press_and_release(0)
     assert config._detached_page is not None
     assert config.current_page() == anon
-    await asyncio.sleep(longer_than_return_to_home_after)  # longer than delay should then switch to home
-    # Should now be on the home page, with the anon page closed automatically
+    await asyncio.sleep(longer_than_return_to_home_after)
     assert config._detached_page is None
     assert config.current_page() == home
-    # Check that the logic also works on non detached pages
-    await(press_and_release(1))
+    await press_and_release(1)
     assert config._detached_page is None
     assert config.current_page() == second
-    await asyncio.sleep(shorter_than_return_to_home_after)  # shorter than delay should stay on page
+    await asyncio.sleep(shorter_than_return_to_home_after)
     assert config._detached_page is None
     assert config.current_page() == second
     await asyncio.sleep(longer_and_shorter_delta)
     assert config._detached_page is None
-    assert config.current_page() == home    
-    # Check that multiple button presses delay the return to home
-    # We have to use a non-detached page for these, as these close 
-    # When pressed
-    await(press_and_release(1))    
-    assert config._detached_page is None
-    assert config.current_page() == second   
-    await asyncio.sleep(shorter_than_return_to_home_after)  # shorter than delay should stay on page
+    assert config.current_page() == home
+    await press_and_release(1)
     assert config._detached_page is None
     assert config.current_page() == second
-    await(press_and_release(0))
-    await asyncio.sleep(shorter_than_return_to_home_after)  # shorter than delay, should still remain on page
+    await asyncio.sleep(shorter_than_return_to_home_after)
     assert config._detached_page is None
-    assert config.current_page() == second   
-    # Here would be a good place to do a dial / touch test
+    assert config.current_page() == second
+    await press_and_release(0)
+    await asyncio.sleep(shorter_than_return_to_home_after)
+    assert config._detached_page is None
+    assert config.current_page() == second
     await do_dial_action()
-    await asyncio.sleep(shorter_than_return_to_home_after)  # shorter than delay, should still remain on page
+    await asyncio.sleep(shorter_than_return_to_home_after)
     assert config._detached_page is None
-    assert config.current_page() == second     
-    await asyncio.sleep(longer_and_shorter_delta)  # longer than delay should then switch to home
+    assert config.current_page() == second
+    await asyncio.sleep(longer_and_shorter_delta)
     assert config._detached_page is None
-    assert config.current_page() == home       
+    assert config.current_page() == home
