@@ -81,6 +81,10 @@ press_start_times: Dict[int, float] = (
 console = Console()
 StateDict: TypeAlias = dict[str, dict[str, Any]]
 
+# Globals or context-level shared state
+is_network_connected: bool = False
+
+
 class _ButtonDialBase(BaseModel, extra="forbid"):  # type: ignore[call-arg]
     """Parent of Button and Dial."""
 
@@ -239,6 +243,8 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             "turn-off",
             "light-control",
             "reload",
+            "network-status",
+            "ha-status",
         ]
         | None
     ) = Field(
@@ -255,7 +261,9 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         " (either an `int` or `str` (name of the page))."
         " If `light-control`, the button will control a light, and the `special_type_data`"
         " can be a dictionary, see its description."
-        " If `reload`, the button will reload the configuration file when pressed.",
+        " If `reload`, the button will reload the configuration file when pressed."
+        " If `network-status`, but button will show the connection status to the network"
+        " If `ha-status`, the button will show the status of Home Assistant.",
     )
     special_type_data: Any | None = Field(
         default=None,
@@ -404,6 +412,14 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         elif button.special_type == "close-page":
             text = button.text or "Close\nPage"
             icon_mdi = button.icon_mdi or "arrow-u-left-bottom-bold"
+        elif button.special_type == "network-status":
+            connected = is_network_connected
+            text = "Network\n" + ("OK" if connected else "ERROR")
+            text_color = "green" if connected else "red"
+        elif button.special_type == "ha-status":
+            connected = is_ha_connected
+            text = "Home\nAssistant\n" + ("OK" if connected else "ERROR")
+            text_color = "green" if connected else "red"
         elif button.special_type == "turn-off":
             text = button.text or "Turn off"
             icon_mdi = button.icon_mdi or "power"
@@ -2774,41 +2790,105 @@ def update_all_key_images(
         )
 
 
+async def is_network_available(host="8.8.8.8", port=53, timeout=3) -> bool:
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout,
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
+def show_connection_status_page(deck, config: Config):
+    if "connection" in config.anonymous_pages:
+        config.to_page("connection")
+        return
+    connection_buttons = [
+        Button(special_type="network-status"),
+        Button(special_type="ha-status"),
+    ]
+    close_button = [Button(special_type="close-page")]
+    n_assigned_buttons = len(connection_buttons) + len(close_button)
+    empty_buttons = [Button(special_type="empty")] * (
+        deck.key_count() - n_assigned_buttons
+    )
+    page_buttons = connection_buttons + empty_buttons + close_button
+    config.anonymous_pages.append(
+        Page(name="connection-auto", buttons=page_buttons),
+    )
+    config.to_page("connection-auto")
+    update_all_key_images(deck, config=config, complete_state=None)
+
+
 async def run(
     host: str,
     token: str,
     protocol: Literal["wss", "ws"],
     config: Config,
+    retry_attempts: Union[int, float] = 0,
+    retry_delay: int = 0,
 ) -> None:
-    """Main entry point for the Stream Deck integration."""
+    """Main entry point for the Stream Deck integration, with retry logic."""
     deck = get_deck()
-    async with setup_ws(host, token, protocol) as websocket:
+    attempt = 0
+    global is_network_connected
+    global is_ha_connected
+
+    while retry_attempts == math.inf or attempt <= retry_attempts:
         try:
-            complete_state = await get_states(websocket)
-            # Initialize shared inactivity state
-            inactivity_state = InactivityState()
-            deck.set_brightness(config.brightness)
-            # Turn on state entity boolean on home assistant
-            await _sync_input_boolean(config.state_entity_id, websocket, "on")
-            update_all_key_images(deck, config, complete_state)
-            deck.set_key_callback_async(
-                _on_press_callback(inactivity_state, websocket, complete_state, config),  # Fixed
+            async with setup_ws(host, token, protocol) as websocket:
+                try:
+                    complete_state = await get_states(websocket)
+                    is_network_connected = await is_network_available()
+                    is_ha_connected = True
+                    attempt = 0  # Reset attempt counter on successful connect
+                    # Initialize shared inactivity state
+                    inactivity_state = InactivityState()
+                    deck.set_brightness(config.brightness)
+                    # Turn on state entity boolean on home assistant
+                    await _sync_input_boolean(config.state_entity_id, websocket, "on")
+                    update_all_key_images(deck, config, complete_state)
+                    deck.set_key_callback_async(
+                        _on_press_callback(inactivity_state, websocket, complete_state, config),  # Fixed
+                    )
+                    update_all_dials(deck, config, complete_state)
+                    if deck.dial_count() != 0:
+                        deck.set_dial_callback_async(
+                            _on_dial_event_callback(inactivity_state, websocket, complete_state, config),  # Fixed
+                        )
+                    if deck.is_visual():
+                        deck.set_touchscreen_callback_async(
+                            _on_touchscreen_event_callback(inactivity_state, websocket, complete_state, config),  # Fixed
+                        )
+                    deck.set_brightness(config.brightness)
+                    await subscribe_state_changes(websocket)
+                    await handle_changes(websocket, complete_state, deck, config)
+                finally:
+                    await _sync_input_boolean(config.state_entity_id, websocket, "off")
+                    deck.reset()
+                # If we got here, we successfully ran until shutdown – exit loop
+                break
+
+        except (
+            websockets.exceptions.ConnectionClosedError,
+            OSError,
+            asyncio.TimeoutError,
+        ) as e:
+            is_network_connected = await is_network_available()
+            is_ha_connected = False
+            show_connection_status_page(deck, config)
+            attempt += 1
+            console.log(f"[WARNING] WebSocket connection failed: {e}")
+            if retry_attempts != math.inf and attempt > retry_attempts:
+                console.log("[ERROR] Max retry attempts reached, giving up.")
+                break
+            console.log(
+                f"[INFO] Retrying in {retry_delay} seconds... (attempt {attempt})",
             )
-            update_all_dials(deck, config, complete_state)
-            if deck.dial_count() != 0:
-                deck.set_dial_callback_async(
-                    _on_dial_event_callback(inactivity_state, websocket, complete_state, config),  # Fixed
-                )
-            if deck.is_visual():
-                deck.set_touchscreen_callback_async(
-                    _on_touchscreen_event_callback(inactivity_state, websocket, complete_state, config),  # Fixed
-                )
-            deck.set_brightness(config.brightness)
-            await subscribe_state_changes(websocket)
-            await handle_changes(websocket, complete_state, deck, config)
-        finally:
-            await _sync_input_boolean(config.state_entity_id, websocket, "off")
-            deck.reset()
+            await asyncio.sleep(retry_delay)
 
 
 def _rich_table_str(df: pd.DataFrame) -> str:
@@ -2897,6 +2977,17 @@ def _help() -> str:
         return ""
 
 
+def parse_retry_attempts(val):
+    if val is None:
+        return 0
+    if isinstance(val, str) and val.lower() == "inf":
+        return math.inf
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return 0
+
+
 def main() -> None:
     """Start the Stream Deck integration."""
     import argparse
@@ -2932,18 +3023,47 @@ def main() -> None:
         default=os.environ.get("WEBSOCKET_PROTOCOL", "wss"),
         choices=["wss", "ws"],
     )
+    parser.add_argument(
+        "--connection-retry-attempts",
+        type=str,
+        default=os.getenv("CONNECTION_RETRY_ATTEMPTS"),
+        help="Maximum number of connection retry attempts (-1 for infinite)",
+    )
+    parser.add_argument(
+        "--connection-retry-delay",
+        type=int,
+        default=os.getenv("CONNECTION_RETRY_DELAY"),
+        help="Delay between connection retry attempts in seconds",
+    )
     args = parser.parse_args()
     console.log(f"Using version {__version__} of the Home Assistant Stream Deck.")
     console.log(
         f"Starting Stream Deck integration with {args.host=}, {args.config=}, {args.protocol=}",
     )
     config = Config.load(args.config, yaml_encoding=args.yaml_encoding)
+
+    final_retry_attempts = parse_retry_attempts(
+        (
+            args.connection_retry_attempts
+            if args.connection_retry_attempts is not None
+            else 0
+        ),
+    )
+
+    final_retry_delay = (
+        int(args.connection_retry_delay)
+        if args.connection_retry_delay is not None
+        else 0
+    )
+
     asyncio.run(
         run(
             host=args.host,
             token=args.token,
             protocol=args.protocol,
             config=config,
+            retry_attempts=final_retry_attempts,
+            retry_delay=final_retry_delay,
         ),
     )
 
