@@ -9,6 +9,7 @@ import functools as ft
 import hashlib
 import io
 import json
+import locale
 import math
 import re
 import time
@@ -290,9 +291,13 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
     )
 
     @classmethod
-    def from_yaml(cls: type[Button], yaml_str: str) -> Button:
+    def from_yaml(
+        cls: type[Button],
+        yaml_str: str,
+        encoding: str | None = None,
+    ) -> Button:
         """Set the attributes from a YAML string."""
-        data = safe_load_yaml(yaml_str)
+        data = safe_load_yaml(yaml_str, encoding=encoding)
         return cls(**data[0])
 
     @property
@@ -948,6 +953,10 @@ class Page(BaseModel):
 class Config(BaseModel):
     """Configuration file."""
 
+    yaml_encoding: str | None = Field(
+        default="utf-8",
+        description="The encoding of the YAML file.",
+    )
     pages: list[Page] = Field(
         default_factory=list,
         description="A list of `Page`s in the configuration.",
@@ -1012,10 +1021,18 @@ class Config(BaseModel):
         return v
 
     @classmethod
-    def load(cls: type[Config], fname: Path) -> Config:
+    def load(
+        cls: type[Config],
+        fname: Path,
+        yaml_encoding: str | None = None,
+    ) -> Config:
         """Read the configuration file."""
         with fname.open() as f:
-            data, include_files = safe_load_yaml(f, return_included_paths=True)
+            data, include_files = safe_load_yaml(
+                f,
+                return_included_paths=True,
+                encoding=yaml_encoding,
+            )
             config = cls(**data)  # type: ignore[arg-type]
             config._configuration_file = fname
             config._include_files = include_files
@@ -1026,7 +1043,10 @@ class Config(BaseModel):
         """Reload the configuration file."""
         assert self._configuration_file is not None
         # Updates all public attributes
-        new_config = self.load(self._configuration_file)
+        new_config = self.load(
+            self._configuration_file,
+            yaml_encoding=self.yaml_encoding,
+        )
         self.return_to_home_after_no_presses = (
             new_config.return_to_home_after_no_presses
         )
@@ -2961,6 +2981,7 @@ def safe_load_yaml(
     f: TextIO | str,
     *,
     return_included_paths: bool = False,
+    encoding: str | None = None,
 ) -> Any | tuple[Any, list]:
     """Load a YAML file."""
     included_files = []
@@ -2996,7 +3017,10 @@ def safe_load_yaml(
         if isinstance(node.value, str):
             filepath = loader._root / str(loader.construct_scalar(node))  # type: ignore[arg-type]
             included_files.append(filepath)
-            return yaml.load(filepath.read_text(), IncludeLoader)  # noqa: S506
+            return yaml.load(
+                filepath.read_text(encoding=encoding),
+                IncludeLoader,  # noqa: S506
+            )
         else:  # noqa: RET505
             mapping = loader.construct_mapping(node, deep=True)  # type: ignore[arg-type]
             assert mapping is not None
@@ -3004,7 +3028,10 @@ def safe_load_yaml(
             included_files.append(filepath)
             variables = mapping["vars"]
 
-            loaded_data = yaml.load(filepath.read_text(), IncludeLoader)  # noqa: S506
+            loaded_data = yaml.load(
+                filepath.read_text(encoding=encoding),
+                IncludeLoader,  # noqa: S506
+            )
             assert loaded_data is not None
             assert variables is not None
             _traverse_yaml(loaded_data, variables)
@@ -3038,6 +3065,10 @@ def main() -> None:
 
     load_dotenv()
 
+    # Get the system default encoding
+    system_encoding = locale.getpreferredencoding()
+    yaml_encoding = os.getenv("YAML_ENCODING", system_encoding)
+
     parser = argparse.ArgumentParser(
         epilog=_help(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -3050,6 +3081,12 @@ def main() -> None:
         type=Path,
     )
     parser.add_argument(
+        "--yaml-encoding",
+        default=yaml_encoding,
+        help=f"Specify encoding for YAML files (default is system encoding or from environment variable YAML_ENCODING (default: {yaml_encoding})",
+    )
+
+    parser.add_argument(
         "--protocol",
         default=os.environ.get("WEBSOCKET_PROTOCOL", "wss"),
         choices=["wss", "ws"],
@@ -3059,7 +3096,7 @@ def main() -> None:
     console.log(
         f"Starting Stream Deck integration with {args.host=}, {args.config=}, {args.protocol=}",
     )
-    config = Config.load(args.config)
+    config = Config.load(args.config, yaml_encoding=args.yaml_encoding)
     asyncio.run(
         run(
             host=args.host,
