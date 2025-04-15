@@ -242,6 +242,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             "close-page",
             "turn-off",
             "light-control",
+            "climate-control",
             "reload",
             "network-status",
             "ha-status",
