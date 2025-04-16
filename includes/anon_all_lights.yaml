@@ -33,7 +33,12 @@
   text: |
     Outside
     lights
-- special_type: empty
+- entity_id: light.living_room
+  special_type: light-control
+  special_type_data:
+  text: |
+    Living room
+    control
 - text: Toggle
 - special_type: empty
 - special_type: empty
