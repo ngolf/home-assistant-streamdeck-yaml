@@ -863,6 +863,7 @@ class Config(BaseModel):
     _parent_page_index: int = PrivateAttr(default=0)
     _is_on: bool = PrivateAttr(default=True)
     _detached_page: Page | None = PrivateAttr(default=None)
+    _detached_page_stack: list[Page] = PrivateAttr(default_factory=list)
     _configuration_file: Path | None = PrivateAttr(default=None)
     _include_files: list[Path] = PrivateAttr(default_factory=list)
 
@@ -989,21 +990,31 @@ class Config(BaseModel):
 
         for i, p in enumerate(self.pages):
             if p.name == page:
+                self._parent_page_index = self._current_page_index
                 self._current_page_index = i
                 return self.current_page()
 
         for p in self.anonymous_pages:
             if p.name == page:
+                if self._detached_page is not None:
+                    self._detached_page_stack.append(self._detached_page)
+                else:
+                    self._parent_page_index = self._current_page_index
                 self._detached_page = p
                 return p
+
         console.log(f"Could find page {page}, staying on current page")
         return self.current_page()
 
     def close_page(self) -> Page:
         """Close the current page."""
-        self._detached_page = None
-        self._current_page_index = self._parent_page_index
+        if self._detached_page_stack:
+            self._detached_page = self._detached_page_stack.pop()
+        else:
+            self._detached_page = None
+            self._current_page_index = self._parent_page_index
         return self.current_page()
+
 
 
 def _next_id() -> int:
