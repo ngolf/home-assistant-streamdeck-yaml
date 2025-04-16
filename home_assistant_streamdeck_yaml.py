@@ -73,6 +73,9 @@ LCD_PIXELS_Y = 100
 LCD_ICON_SIZE_X = 200
 LCD_ICON_SIZE_Y = 100
 
+# Max pages in history, to avoid memory issues
+MAX_PAGES_IN_HISTORY = 10
+
 console = Console()
 StateDict: TypeAlias = dict[str, dict[str, Any]]
 
@@ -783,8 +786,6 @@ class Page(BaseModel):
         description="A list of dials on the page.",
     )
 
-    _parent_page_index: int = PrivateAttr([])
-
     _dials_sorted: list[Dial] = PrivateAttr([])
 
     def sort_dials(self) -> list[tuple[Dial, Dial | None]]:
@@ -860,10 +861,9 @@ class Config(BaseModel):
         " be reloaded when it is modified.",
     )
     _current_page_index: int = PrivateAttr(default=0)
-    _parent_page_index: int = PrivateAttr(default=0)
     _is_on: bool = PrivateAttr(default=True)
     _detached_page: Page | None = PrivateAttr(default=None)
-    _detached_page_stack: list[tuple[Page, int]] = PrivateAttr(default_factory=list)
+    _page_history_stack: list[tuple[Page | None, int]] = PrivateAttr(default_factory=list)
     _configuration_file: Path | None = PrivateAttr(default=None)
     _include_files: list[Path] = PrivateAttr(default_factory=list)
 
@@ -889,19 +889,16 @@ class Config(BaseModel):
     def reload(self) -> None:
         """Reload the configuration file."""
         assert self._configuration_file is not None
-        # Updates all public attributes
         new_config = self.load(
             self._configuration_file,
             yaml_encoding=self.yaml_encoding,
         )
         self.__dict__.update(new_config.__dict__)
         self._include_files = new_config._include_files
-        # Set the private attributes we want to preserve
         if self._detached_page is not None:
             self._detached_page = self.to_page(self._detached_page.name)
             self.current_page().sort_dials()
         if self._current_page_index >= len(self.pages):
-            # In case pages were removed, reset to the first page
             self._current_page_index = 0
 
     @classmethod
@@ -934,9 +931,7 @@ class Config(BaseModel):
 
     def next_page(self) -> Page:
         """Go to the next page."""
-        self._parent_page_index = self._current_page_index
-        self._current_page_index = self.next_page_index
-        return self.pages[self._current_page_index]
+        return self.to_page(self.next_page_index)
 
     @property
     def next_page_index(self) -> int:
@@ -950,9 +945,7 @@ class Config(BaseModel):
 
     def previous_page(self) -> Page:
         """Go to the previous page."""
-        self._parent_page_index = self._current_page_index
-        self._current_page_index = self.previous_page_index
-        return self.pages[self._current_page_index]
+        return self.to_page(self.previous_page_index)
 
     def current_page(self) -> Page:
         """Return the current page."""
@@ -984,51 +977,55 @@ class Config(BaseModel):
     def to_page(self, page: int | str) -> Page:
         """Go to a page based on the page name or index."""
         if isinstance(page, int):
-            self._parent_page_index = self._current_page_index
+            self.add_current_page_to_history()
             self._current_page_index = page
             return self.current_page()
 
         for i, p in enumerate(self.pages):
             if p.name == page:
-                self._parent_page_index = self._current_page_index
+                self.add_current_page_to_history()
                 self._current_page_index = i
                 return self.current_page()
 
         for p in self.anonymous_pages:
             if p.name == page:
-                if self._detached_page is not None:
-                    self._detached_page_stack.append((self._detached_page, self._parent_page_index))
-                else:
-                    self._detached_page_stack.append((None, self._current_page_index))
+                self.add_current_page_to_history()
                 self._detached_page = p
                 return p
 
         console.log(f"Could find page {page}, staying on current page")
         return self.current_page()
 
-    def close_page(self) -> Page:
-        """Close the current page."""
-        if self._detached_page_stack:
-            previous_page, parent_index = self._detached_page_stack.pop()
+    def add_current_page_to_history(self) -> None:
+        """Add the current detached or regular page to the stack and trim if needed."""
+        if self._detached_page is not None:
+            self._page_history_stack.append((self._detached_page, self._current_page_index))
+        else:
+            self._page_history_stack.append((None, self._current_page_index))
+
+        if len(self._page_history_stack) > MAX_PAGES_IN_HISTORY:
+            self._page_history_stack.pop(0)
+
+    def load_last_from_history(self) -> Page:
+        """Pop the last entry from the stack and restore that page."""
+        if self._page_history_stack:
+            previous_page, previous_index = self._page_history_stack.pop()
             self._detached_page = previous_page
-            self._parent_page_index = parent_index
+            self._current_page_index = previous_index
         else:
             self._detached_page = None
-            self._current_page_index = self._parent_page_index
         return self.current_page()
+
+    def close_page(self) -> Page:
+        """Close the current page."""
+        return self.load_last_from_history()
     
     def open_detached_page(self, page: Page) -> Page:
         """Open a detached page, keeping track of the previous page"""
-        if self._detached_page is not None:
-            self._detached_page_stack.append((self._detached_page, self._parent_page_index))
-        else:
-            self._detached_page_stack.append((None, self._current_page_index))
+        self.add_current_page_to_history()
         self._detached_page = page
         
         
-
-
-
 def _next_id() -> int:
     global _ID_COUNTER
     _ID_COUNTER += 1
