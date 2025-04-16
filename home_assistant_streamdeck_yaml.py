@@ -2687,6 +2687,7 @@ async def _handle_key_press(
                 colormap=special_type_data.get("colormap", None),
                 colors=special_type_data.get("colors", None),
                 color_temp_kelvin=special_type_data.get("color_temp_kelvin", None),
+                brightness=special_type_data.get("brightness", None),
             )
             config._detached_page = page
             update_all()
