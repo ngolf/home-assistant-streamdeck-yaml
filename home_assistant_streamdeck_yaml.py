@@ -262,6 +262,9 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         " (either an `int` or `str` (name of the page))."
         " If `light-control`, the button will control a light, and the `special_type_data`"
         " can be a dictionary, see its description."
+        " If `climate-control`, the button will control climate, and the `special_type_data`"
+        " can be a dictionary, see its description. The climage control page shown is meant to "
+        " be temporary, and will not update values dynamically."
         " If `reload`, the button will reload the configuration file when pressed."
         " If `network-status`, but button will show the connection status to the network"
         " If `ha-status`, the button will show the status of Home Assistant.",
@@ -278,18 +281,14 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         " The `colormap` key and a value a colormap (https://matplotlib.org/stable/tutorials/colors/colormaps.html)"
         " can be used. This requires the `matplotlib` package to be installed. If no"
         " list of `colors` or `colormap` is specified, 10 equally spaced colors are used."
-        " The `brightness` key and a value a brightness level (0-100).",
-    )
-    long_press: dict[str, Any] | None = Field(
-        default=None,
-        allow_template=True,
-        description="Configuration for long press actions. Can include:"
-        " `service`: The service to call on long press (e.g., 'light.turn_off')."
-        " `service_data`: Data to pass to the service (e.g., {'brightness_pct': 10})."
-        " `entity_id`: The entity ID to target (e.g., 'light.living_room'), overriding the button's entity_id if specified."
-        " `special_type`: Special action for long press (e.g., 'next-page', 'light-control')."
-        " `special_type_data`: Data for the special type action (e.g., {'colors': ['#FF0000']})."
-        " If not specified, the default service or special_type action is used for both short and long presses.",
+        " The `brightness` key and a value a brightness level (0-100)."
+        " If `climate-control`, the data should optionally be a dictionary."
+        " The dictionary can contain the following keys:"
+        " The `temperatures` key and a value a list of max (`n_keys_on_streamdeck - 5`) temperatures in Celsius."
+        " The `name` key and a value a name for the climate control page."
+        " The `hvac_modes` key and a value a list of HVAC modes to display on the dial."
+        " The maximum number of temperatures + hvac_modes should be less than the number of keys on the Streamdeck minus 3."
+        " If no list of `temperatures` is specified, 10 equally spaced temperatures are used.",
     )
     long_press: dict[str, Any] | None = Field(
         default=None,
@@ -530,6 +529,31 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                         raise AssertionError(msg)  # noqa: TRY004
                 # Cast brightness to tuple (to make it hashable)
                 v["brightness"] = tuple(v["brightness"])
+        if special_type == "climate-control":
+            if v is None:
+                v = {}
+            if not isinstance(v, dict):
+                msg = (
+                    "With 'climate-control', 'special_type_data' must"
+                    f" be a dict, not '{v}'"
+                )
+                raise AssertionError(msg)
+            # Can only have the following keys: temperatures and name
+            allowed_keys = {"temperatures", "name", "hvac_modes"}
+            invalid_keys = v.keys() - allowed_keys
+            if invalid_keys:
+                msg = (
+                    f"Invalid keys in 'special_type_data', only {allowed_keys} allowed"
+                )
+                raise AssertionError(msg)
+            # If temperatures is present, it must be a list of integers
+            if "temperatures" in v:
+                for temp in v["temperatures"]:
+                    if not isinstance(temp, int):
+                        msg = "All temperatures must be integers"
+                        raise AssertionError(msg)  # noqa: TRY004
+                # Cast temperatures to tuple (to make it hashable)
+                v["temperatures"] = tuple(v["temperatures"])
         return v
 
     @validator("long_press", pre=True)
@@ -1467,6 +1491,136 @@ def _light_page(
         + buttons_brightness
         + buttons_back,
     )
+    
+    
+def _climate_page(
+    entity_id: str,
+    complete_state: StateDict,
+    temperatures: tuple[int, ...] | None,
+    hvac_modes: list[str] | None,
+    name: str | None,
+    deck_key_count: int,
+) -> Page:
+    """Return a page of buttons for controlling lights."""
+    console.log(f"Creating climate page for {entity_id}")
+    state = complete_state[entity_id]
+
+    current_temperature = state.get("attributes", {}).get(
+        "current_temperature",
+        "MISSING",
+    )
+    
+    cool_color = "cyan"
+    cool_text = "cool"
+    cool_icon = "snowflake"
+    heat_color = "#FFA500"
+    heat_icon = "fire"
+    heat_text = "heat"
+    auto_color = "#00FF00"
+    auto_icon = "sun-snowflake"
+    auto_text = "auto"
+    off_text = "OFF"
+    off_icon = None
+    off_color = None 
+    unknown_icon = "help"
+    unknown_text = "UNKNOWN"
+    unknown_color = None
+    
+    def format_temp(temp: float | None) -> str:
+        if temp is None:
+            return "?"
+        return f"{temp:.2f}".rstrip('0').rstrip('.')
+    
+    current_mode : str | None = state.get("state", None)
+    def get_icon_text_and_color(mode: str) -> tuple[str, str, str]:
+        match mode.lower():
+            case "cool":
+                return cool_icon, cool_text, cool_color     
+            case "heat":
+                return heat_icon, heat_text, heat_color
+            case "auto" | "heat_cool":
+                return auto_icon, auto_text, auto_color
+            case "off":
+                return off_icon, off_text, off_color
+            case _:
+                return unknown_icon, unknown_text, unknown_color
+            
+            
+    def mode_button(mode: str) -> Button:
+        icon_mdi, text, text_color = get_icon_text_and_color(mode)
+        return Button(
+            service="climate.set_hvac_mode",
+            service_data={
+                "entity_id": entity_id,
+                "hvac_mode": mode,
+            },
+            text=f"Set\n{text.capitalize()}",
+            text_color=text_color,
+            icon_mdi=icon_mdi,
+        )
+      
+    current_temperature = state.get("attributes", {}).get("temperature")
+    current_mode_icon_mdi, _, current_mode_text_color = get_icon_text_and_color(current_mode)
+    
+    button_status = [
+        Button(
+            text=(name + "\n" if name else "") 
+            + format_temp(current_temperature) 
+            + (f" -> {format_temp(current_temperature)}" if current_mode.lower() != 'off' and current_temperature else "") 
+            + "°C\n"
+            + current_mode.capitalize(),
+            text_offset = -12,
+            text_color = current_mode_text_color,
+            icon_mdi=current_mode_icon_mdi,
+        ),
+    ]
+    buttons_temperatures = [
+        Button(
+            service="climate.set_temperature",
+            service_data={
+                "entity_id": entity_id,
+                "temperature": temperature,
+            },
+            text=format_temp(temperature) + "°C",
+        )
+        for temperature in (temperatures or ())
+    ]
+    buttons_hvac_modes = [
+        mode_button(mode)
+        for mode in (hvac_modes or [])
+    ]
+    button_back = [
+        Button(
+            special_type="close-page"
+        ),
+    ]
+    button_off = [
+        Button(
+            service="climate.turn_off",
+            text="OFF",
+            service_data={"entity_id": entity_id},
+        ),
+    ]
+    buttons_before_temperatures = button_status + button_off + buttons_hvac_modes
+    buttons_after_temperatures_and_empty = button_back
+    n_empty_buttons = deck_key_count - len(buttons_before_temperatures) - len(buttons_temperatures) - len(buttons_after_temperatures_and_empty)
+    if n_empty_buttons < 0:
+        console.log(
+            f"Too many buttons in the climate page. Some might not be shown. The deck has {abs(n_empty_buttons)} too many buttons. Remove some temperatures or hvac modes.",
+            style="red",
+        )
+        n_empty_buttons = 0
+    # Create empty buttons to fill the remaining space, so that the close button is in the usual place.
+    buttons_empty = [Button(special_type="empty")] * n_empty_buttons
+        
+    
+    return Page(
+        name="Climate",
+        buttons=buttons_before_temperatures
+        + buttons_temperatures
+        + buttons_empty
+        + buttons_after_temperatures_and_empty,
+    )
 
 
 @asynccontextmanager
@@ -2389,6 +2543,9 @@ async def _handle_key_press(
         elif special_type == "previous-page":
             config.previous_page()
             update_all()
+        elif button.special_type == "close-page":
+            config.close_page()
+            update_all()
         elif special_type == "go-to-page":
             assert isinstance(special_type_data, (str, int))
             config.to_page(special_type_data)  # type: ignore[arg-type]
@@ -2401,13 +2558,41 @@ async def _handle_key_press(
             assert isinstance(special_type_data, dict)
             page = _light_page(
                 entity_id=entity_id,
-                n_colors=10,
+                n_colors=9,
                 colormap=special_type_data.get("colormap", None),
                 colors=special_type_data.get("colors", None),
                 color_temp_kelvin=special_type_data.get("color_temp_kelvin", None),
             )
             config._detached_page = page
             update_all()
+            return  # to skip the _detached_page reset below
+        elif special_type == "climate-control":
+            console.log("calling climate page")
+            assert isinstance(special_type_data, dict) or special_type_data is None
+            console.log(f"special_data: {special_type_data}")
+            temperatures = special_type_data.get("temperatures", None)
+            hvac_modes = special_type_data.get("hvac_modes", None)
+            name = special_type_data.get("name", None)  # Pass name explicitly
+            console.log(f"temperatures: {temperatures}, hvac_modes: {hvac_modes}, name: {name}")
+            try:
+                if entity_id not in complete_state:
+                    console.log(f"Error: entity_id {entity_id} not found in complete_state")
+                    return
+                page = _climate_page(
+                    entity_id=entity_id,
+                    complete_state=complete_state,
+                    temperatures=temperatures,
+                    hvac_modes=hvac_modes,
+                    name=name,
+                    deck_key_count=deck.key_count(),
+                )
+                console.log(f"got detached page {page}")
+                config._detached_page = page
+                update_all()
+            except Exception as e:
+                console.print_exception(show_locals=True)  # Log full stack trace
+                console.log(f"Error creating climate page: {e}")
+                return
             return  # to skip the _detached_page reset below
         elif special_type == "reload":
             config.reload()
