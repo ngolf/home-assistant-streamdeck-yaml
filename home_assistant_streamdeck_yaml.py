@@ -1676,6 +1676,97 @@ def _light_page(
         + buttons_back,
     )
 
+def _climate_page(
+    entity_id: str,
+    complete_state: StateDict,
+    temperatures: tuple[int, ...] | None,
+    hvac_modes: list[str] | None,
+    name: str | None,
+    deck_key_count: int,
+) -> Page:
+    """Return a page of buttons for controlling lights."""
+    console.log(f"Creating climate page for {entity_id}")
+    state = complete_state.get(entity_id, {})
+
+    current_temperature = state.get("attributes", {}).get(
+        "current_temperature",
+        "MISSING",
+    )
+    
+    def format_temp(temp: float | None) -> str:
+        if temp is None:
+            return "?"
+        return f"{temp:.2f}".rstrip('0').rstrip('.')
+                 
+    def mode_button(mode: str) -> Button:
+        icon_mdi, text, text_color = get_climate_icon_text_and_color(mode)
+        return Button(
+            service="climate.set_hvac_mode",
+            service_data={
+                "entity_id": entity_id,
+                "hvac_mode": mode,
+            },
+            text=f"Set\n{text.capitalize()}",
+            text_color=text_color,
+            icon_mdi=icon_mdi,
+        )
+      
+    button_status = [Button.climate_control_with_status(
+        entity_id=entity_id,
+        complete_state=complete_state,
+        display_climate_string=False,
+        display_mode=True,
+        open_climate_page_on_press=False,
+        name=name,
+        special_type_data=None,
+    )]
+    buttons_temperatures = [
+        Button(
+            service="climate.set_temperature",
+            service_data={
+                "entity_id": entity_id,
+                "temperature": temperature,
+            },
+            text=format_temp(temperature) + "°C",
+        )
+        for temperature in (temperatures or ())
+    ]
+    buttons_hvac_modes = [
+        mode_button(mode)
+        for mode in (hvac_modes or [])
+    ]
+    button_back = [
+        Button(
+            special_type="close-page"
+        ),
+    ]
+    button_off = [
+        Button(
+            service="climate.turn_off",
+            text="OFF",
+            service_data={"entity_id": entity_id},
+        ),
+    ]
+    buttons_before_temperatures = button_status + button_off + buttons_hvac_modes
+    buttons_after_temperatures_and_empty = button_back
+    n_empty_buttons = deck_key_count - len(buttons_before_temperatures) - len(buttons_temperatures) - len(buttons_after_temperatures_and_empty)
+    if n_empty_buttons < 0:
+        console.log(
+            f"Too many buttons in the climate page. Some might not be shown. The deck has {abs(n_empty_buttons)} too many buttons. Remove some temperatures or hvac modes.",
+            style="red",
+        )
+        n_empty_buttons = 0
+    # Create empty buttons to fill the remaining space, so that the close button is in the usual place.
+    buttons_empty = [Button(special_type="empty")] * n_empty_buttons
+        
+
+    return Page(
+        name="Climate",
+        buttons=buttons_before_temperatures
+        + buttons_temperatures
+        + buttons_empty
+        + buttons_after_temperatures_and_empty,
+    )
 
 @asynccontextmanager
 async def setup_ws(
@@ -2610,17 +2701,21 @@ async def _handle_key_press(
             await _sync_input_boolean(config.state_entity_id, websocket, "off")
         elif special_type == "light-control":
             assert isinstance(special_type_data, dict)
-            page = _light_page(
-                entity_id=entity_id,
-                n_colors=9,
-                colormap=special_type_data.get("colormap", None),
-                colors=special_type_data.get("colors", None),
-                color_temp_kelvin=special_type_data.get("color_temp_kelvin", None),
-                brightness=special_type_data.get("brightness", None),
-                deck_key_count=deck.key_count(),
-        )
-            config._detached_page = page
-            update_all()
+            try:
+                page = _light_page(
+                    entity_id=entity_id,
+                    n_colors=9,
+                    colormap=special_type_data.get("colormap", None),
+                    colors=special_type_data.get("colors", None),
+                    color_temp_kelvin=special_type_data.get("color_temp_kelvin", None),
+                    brightness=special_type_data.get("brightness", None),
+                    deck_key_count=deck.key_count(),
+                )
+                config._detached_page = page
+                update_all()
+            except Exception as e:
+                console.print_exception(show_locals=True)
+                console.log(f"Error while creating light page: {e}")
             return  # to skip the _detached_page reset below
         elif special_type == "climate-control":
             assert isinstance(special_type_data, dict) or special_type_data is None
