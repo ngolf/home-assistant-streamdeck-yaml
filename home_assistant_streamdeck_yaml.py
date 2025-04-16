@@ -863,7 +863,7 @@ class Config(BaseModel):
     _parent_page_index: int = PrivateAttr(default=0)
     _is_on: bool = PrivateAttr(default=True)
     _detached_page: Page | None = PrivateAttr(default=None)
-    _detached_page_stack: list[Page] = PrivateAttr(default_factory=list)
+    _detached_page_stack: list[tuple[Page, int]] = PrivateAttr(default_factory=list)
     _configuration_file: Path | None = PrivateAttr(default=None)
     _include_files: list[Path] = PrivateAttr(default_factory=list)
 
@@ -997,9 +997,9 @@ class Config(BaseModel):
         for p in self.anonymous_pages:
             if p.name == page:
                 if self._detached_page is not None:
-                    self._detached_page_stack.append(self._detached_page)
+                    self._detached_page_stack.append((self._detached_page, self._parent_page_index))
                 else:
-                    self._parent_page_index = self._current_page_index
+                    self._detached_page_stack.append((None, self._current_page_index))
                 self._detached_page = p
                 return p
 
@@ -1009,11 +1009,23 @@ class Config(BaseModel):
     def close_page(self) -> Page:
         """Close the current page."""
         if self._detached_page_stack:
-            self._detached_page = self._detached_page_stack.pop()
+            previous_page, parent_index = self._detached_page_stack.pop()
+            self._detached_page = previous_page
+            self._parent_page_index = parent_index
         else:
             self._detached_page = None
             self._current_page_index = self._parent_page_index
         return self.current_page()
+    
+    def open_detached_page(self, page: Page) -> Page:
+        """Open a detached page, keeping track of the previous page"""
+        if self._detached_page is not None:
+            self._detached_page_stack.append((self._detached_page, self._parent_page_index))
+        else:
+            self._detached_page_stack.append((None, self._current_page_index))
+        self._detached_page = page
+        
+        
 
 
 
@@ -2198,6 +2210,7 @@ async def _handle_key_press(
     elif button.special_type == "close-page":
         config.close_page()
         update_all()
+        return  # to skip the _detached_page reset below, as we might want to return to another detached page
     elif button.special_type == "go-to-page":
         assert isinstance(button.special_type_data, (str, int))
         config.to_page(button.special_type_data)  # type: ignore[arg-type]
@@ -2215,7 +2228,7 @@ async def _handle_key_press(
             colors=button.special_type_data.get("colors", None),
             color_temp_kelvin=button.special_type_data.get("color_temp_kelvin", None),
         )
-        config._detached_page = page
+        config.open_detached_page(page)
         update_all()
         return  # to skip the _detached_page reset below
     elif button.special_type == "reload":
@@ -2235,7 +2248,7 @@ async def _handle_key_press(
         await call_service(websocket, button.service, service_data, button.target)
 
     if config._detached_page:
-        config._detached_page = None
+        config.close_page()
         update_all()
 
 
