@@ -190,7 +190,9 @@ def config(buttons: list[Button]) -> Config:
     """Config fixture."""
     page_1 = Page(buttons=buttons[:BUTTONS_PER_PAGE], name="Home")
     page_2 = Page(buttons=buttons[BUTTONS_PER_PAGE:], name="Second")
-    return Config(pages=[page_1, page_2])
+    page_named_1 = Page(buttons=buttons, name="Named_1")
+    page_named_2 = Page(buttons=buttons, name="Named_2")
+    return Config(pages=[page_1, page_2], anonymous_pages=[page_named_1, page_named_2])
 
 
 def test_named_to_hex() -> None:
@@ -228,6 +230,12 @@ def test_example_close_pages(config: Config) -> None:
     assert config._current_page_index == 1
     config.close_page()
     assert config._current_page_index == 0
+    named1 = config.to_page("Named_1")
+    assert isinstance(named1, Page)
+    named2 = config.to_page("Named_2")
+    assert isinstance(named2, Page)
+    config.close_page()
+    assert config.current_page() == named1
 
 
 @pytest.mark.skipif(
