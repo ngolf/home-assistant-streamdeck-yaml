@@ -2817,6 +2817,14 @@ def _on_press_callback(
                             )
                         except Exception as e:
                             console.log(f"Error in long press handling: {e}")
+                        # Update key image to unpressed state after long press
+                        update_key_image(
+                            deck,
+                            key=key,
+                            config=config,
+                            complete_state=complete_state,
+                            key_pressed=False,
+                        )
                         del press_start_times[key]
                 except asyncio.CancelledError:
                     console.log(f"Long press monitor for key {key} was canceled")
