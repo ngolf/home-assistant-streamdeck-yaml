@@ -190,8 +190,14 @@ def config(buttons: list[Button]) -> Config:
     """Config fixture."""
     page_1 = Page(buttons=buttons[:BUTTONS_PER_PAGE], name="Home")
     page_2 = Page(buttons=buttons[BUTTONS_PER_PAGE:], name="Second")
-    page_named_1 = Page(buttons=buttons, name="Named_1")
-    page_named_2 = Page(buttons=buttons, name="Named_2")
+    page_named_1 = Page(
+        buttons=[
+            Button(special_type="go-to-page", special_type_data="Named_2"), 
+            Button(special_type="close-page"),
+            ], 
+        name="Named_1",
+        )
+    page_named_2 = Page(buttons=[Button(special_type="close-page")], name="Named_2")
     return Config(pages=[page_1, page_2], anonymous_pages=[page_named_1, page_named_2])
 
 
@@ -221,10 +227,23 @@ def test_example_config_browsing_pages(config: Config) -> None:
     assert config.button(0) == first_page.buttons[0]
 
 
-def test_example_close_pages(config: Config) -> None:
+async def test_close_pages( 
+        mock_deck: Mock,
+        websocket_mock: Mock,
+        state: dict[str, dict[str, Any]],
+        config: Config
+    ) -> None:
+    
+    press = _on_press_callback(websocket_mock, state, config)
+    # Mock the press function to simulate key press and release
+    async def press_and_release(key: int) -> None:
+        await press(mock_deck, key, key_pressed=True)
+        await press(mock_deck, key, key_pressed=False)
+        
     """Test example config close pages."""
     assert isinstance(config, Config)
     assert config._current_page_index == 0
+    page_home = config.current_page()
     second_page = config.next_page()
     assert isinstance(second_page, Page)
     assert config._current_page_index == 1
@@ -236,8 +255,14 @@ def test_example_close_pages(config: Config) -> None:
     assert isinstance(named2, Page)
     config.close_page()
     assert config.current_page() == named1
-
-
+    await press_and_release(0) # butto is goto named2
+    assert config.current_page() == named2
+    await press_and_release(0) # button is close page
+    assert config.current_page() == named1
+    await press_and_release(1) # button is close page
+    assert config.current_page() == page_home
+    
+        
 @pytest.mark.skipif(
     not IS_CONNECTED_TO_HOMEASSISTANT,
     reason="Not connected to Home Assistant",
