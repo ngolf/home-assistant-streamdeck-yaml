@@ -85,9 +85,7 @@ StateDict: TypeAlias = dict[str, dict[str, Any]]
 # Globals or context-level shared state
 is_network_connected: bool = False
 
-# Globals or context-level shared state
-is_network_connected: bool = False
-
+# Gets the climate icon, text, and text color for climate modes
 def get_climate_icon_text_and_color(mode: str) -> tuple[str, str, str]:
     cool_color = "cyan"
     cool_text = "cool"
@@ -1666,7 +1664,7 @@ def _climate_page(
 ) -> Page:
     """Return a page of buttons for controlling lights."""
     console.log(f"Creating climate page for {entity_id}")
-    state = complete_state[entity_id]
+    state = complete_state.get(entity_id, {})
 
     current_temperature = state.get("attributes", {}).get(
         "current_temperature",
