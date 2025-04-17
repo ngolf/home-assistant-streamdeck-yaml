@@ -785,6 +785,11 @@ class Page(BaseModel):
         default_factory=list,
         description="A list of dials on the page.",
     )
+    
+    close_on_press: bool = Field(
+        default=False,
+        assert False # WIP, not implemented yet.
+    )
 
     _dials_sorted: list[Dial] = PrivateAttr([])
 
