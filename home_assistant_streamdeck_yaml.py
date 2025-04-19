@@ -1117,7 +1117,7 @@ class Page(BaseModel):
 
     @staticmethod
     def connection_page(deck: StreamDeck) -> Page:
-        """Create a page with connection buttons."""
+        """Returns a page showing connection to network and homeassistant."""
         connection_buttons = [
             Button(special_type="network-status"),
             Button(special_type="ha-status"),
@@ -2711,7 +2711,7 @@ def _on_dial_event_callback(
     return dial_event_callback
 
 
-async def _handle_key_press(  # noqa: PLR0915 C901
+async def _handle_key_press(  # noqa: PLR0915 C901  # noqa: PLR0912
     websocket: websockets.WebSocketClientProtocol,
     complete_state: StateDict,
     config: Config,
@@ -3340,7 +3340,7 @@ async def run(
         ) as e:
             is_network_connected = await is_network_available()
             is_ha_connected = False
-
+            connection_page_opened_by_self = True
             config.load_page_as_detached(Page.connection_page(deck))
             update_all_key_images(deck, config=config, complete_state={})
             attempt += 1
