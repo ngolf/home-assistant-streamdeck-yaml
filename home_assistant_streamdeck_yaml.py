@@ -23,6 +23,7 @@ from typing import (
     Any,
     Callable,
     Literal,
+    NamedTuple,
     TextIO,
     TypeAlias,
 )
@@ -88,33 +89,29 @@ StateDict: TypeAlias = dict[str, dict[str, Any]]
 is_network_connected: bool = False
 is_ha_connected: bool = False
 
-# Gets the climate icon, text, and text color for climate modes
-def get_climate_icon_text_and_color(mode: str) -> tuple[str, str, str]:
-    cool_color = "cyan"
-    cool_text = "cool"
-    cool_icon = "snowflake"
-    heat_color = "#FFA500"
-    heat_icon = "fire"
-    heat_text = "heat"
-    auto_color = "#00FF00"
-    auto_icon = "sun-snowflake"
-    auto_text = "auto"
-    off_text = "OFF"
-    off_icon = None
-    off_color = None 
-    unknown_icon = "help"
-    unknown_text = "UNKNOWN"
-    unknown_color = None
-    
+class HvacModeInfo(NamedTuple):
+    """Aggregates some data to draw buttons representing a hvac mode."""
+
+    icon_mdi: str | None
+    text: str
+    color: str | None
+
+
+def get_hvac_mode_info(mode: str) -> HvacModeInfo:
+    """Gets the HvacModeInfo for a given hvac mode."""
     match mode.lower():
         case "cool":
-            return cool_icon, cool_text, cool_color     
+            return HvacModeInfo(icon_mdi="snowflake", text="cool", color="cyan")
         case "heat":
-            return heat_icon, heat_text, heat_color
+            return HvacModeInfo(icon_mdi="fire", text="heat", color="#FFA500")
         case "auto" | "heat_cool":
-            return auto_icon, auto_text, auto_color
+            return HvacModeInfo(
+                icon_mdi="sun-snowflake",
+                text="auto",
+                color="#00FF00",
+            )
         case "off":
-            return off_icon, off_text, off_color
+            return HvacModeInfo(icon_mdi=None, text="OFF", color=None)
         case _:
             return unknown_icon, unknown_text, unknown_color
        
@@ -396,59 +393,81 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                 stacklevel=2,
             )
             return _generate_failed_icon(size)
-        
+
     @classmethod
     def climate_control_with_status(
         cls: type[Button],
         entity_id: str,
         complete_state: StateDict,
-        display_climate_string: bool,
-        display_mode: bool,
-        open_climate_page_on_press: bool,
         name: str | None = None,
         special_type_data: Any | None = None,
         base_button: Button | None = None,
+        *,
+        display_climate_string: bool,
+        display_mode: bool,
+        open_climate_page_on_press: bool,
     ) -> Button:
-        """Return a climate control button, preserving base_button attributes except special_type, special_type_data, and always setting text_offset."""
+        """Return a climate control button, preserving base_button attributes.
+
+        Note:
+        Text_offset is not preserved, it is calculated based on the text size and number of lines.
+
+        """
         state = complete_state.get(entity_id, {})
-        
+
         def format_temp(temp: float | None) -> str:
             if temp is None:
                 return "?"
-            return f"{temp:.2f}".rstrip('0').rstrip('.')
+            return f"{temp:.2f}".rstrip("0").rstrip(".")
 
         # Compute climate-specific values for text, icon_mdi, and text_color
         current_temperature = state.get("attributes", {}).get("temperature")
         current_mode: str | None = state.get("state", None)
         computed_text = (
-            ("Climate\n" if display_climate_string else "") +
-            (name + "\n" if name else "") +
-            format_temp(current_temperature) +
-            (f" -> {format_temp(current_temperature)}" if current_mode and current_mode.lower() != 'off' and current_temperature else "") +
-            "°C\n" +
-            (current_mode.capitalize() if display_mode and current_mode else "")
+            ("Climate\n" if display_climate_string else "")
+            + (name + "\n" if name else "")
+            + format_temp(current_temperature)
+            + (
+                f" -> {format_temp(current_temperature)}"
+                if current_mode
+                and current_mode.lower() != "off"
+                and current_temperature
+                else ""
+            )
+            + "°C\n"
+            + (current_mode.capitalize() if display_mode and current_mode else "")
         )
-        computed_icon_mdi, _, computed_text_color = get_climate_icon_text_and_color(current_mode or "unknown")
-        
+        mode_info = get_hvac_mode_info(current_mode or "unknown")
+        computed_icon_mdi = mode_info.icon_mdi
+        computed_text_color = mode_info.color
+
         # Initialize attributes
         button_kwargs = {}
-        
+
         # If base_button is provided, copy its attributes
         if base_button:
             button_kwargs = base_button.dict(exclude_unset=True)
-        
+
         # Determine the text to use and count its lines
-        text = computed_text if ("text" not in button_kwargs or button_kwargs["text"] is None) else button_kwargs["text"]
-        lines = text.rstrip("\n").count("\n") + 1  # Add 1 for the last line (no trailing \n)
-        
+        text = (
+            computed_text
+            if ("text" not in button_kwargs or button_kwargs["text"] is None)
+            else button_kwargs["text"]
+        )
+        lines = (
+            text.rstrip("\n").count("\n") + 1
+        )  # Add 1 for the last line (no trailing \n)
+
         # Compute text_offset based on text_size (handle None explicitly)
         text_size = button_kwargs.get("text_size", 12)
         if text_size is None:
             text_size = DEFAULT_TEXT_SIZE  # Fallback to default if explicitly None
-        computed_text_offset = -int(max(0, lines - 2) * text_size)  # Adjusted multiplier for better spacing
-        
+        computed_text_offset = -int(
+            max(0, lines - 2) * text_size,
+        )  # Adjusted multiplier for better spacing
+
         # Set text, icon_mdi, and text_color only if not defined in base_button
-        # If text is not defined in base button, use the computed offset to center the 
+        # If text is not defined in base button, use the computed offset to center the
         # generated text. This overrides the base button's text_offset.
         if "text" not in button_kwargs or button_kwargs["text"] is None:
             button_kwargs["text"] = computed_text
@@ -457,17 +476,27 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             button_kwargs["icon_mdi"] = computed_icon_mdi
         if "text_color" not in button_kwargs or button_kwargs["text_color"] is None:
             button_kwargs["text_color"] = computed_text_color
-        
+
         # Always set text_offset and override entity_id, special_type, special_type_data
-        button_kwargs.update({
-            "entity_id": entity_id,
-            "text_offset": computed_text_offset,
-            "special_type": "climate-control" if open_climate_page_on_press else None,
-            "special_type_data": special_type_data if special_type_data is not None else (
-                base_button.special_type_data if base_button and base_button.special_type_data else None
-            ),
-        })
-        
+        button_kwargs.update(
+            {
+                "entity_id": entity_id,
+                "text_offset": computed_text_offset,
+                "special_type": (
+                    "climate-control" if open_climate_page_on_press else None
+                ),
+                "special_type_data": (
+                    special_type_data
+                    if special_type_data is not None
+                    else (
+                        base_button.special_type_data
+                        if base_button and base_button.special_type_data
+                        else None
+                    )
+                ),
+            },
+        )
+
         return cls(**button_kwargs)
 
     def render_icon(  # noqa: PLR0912 PLR0915 C901 C901
@@ -492,11 +521,15 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                     display_climate_string=True,
                     display_mode=False,
                     open_climate_page_on_press=True,
-                    name=self.special_type_data.get("name") if self.special_type_data else None,
+                    name=(
+                        self.special_type_data.get("name")
+                        if self.special_type_data
+                        else None
+                    ),
                     special_type_data=self.special_type_data,
                     base_button=rendered_button,  # Pass self to preserve attributes
                 )
-            else:                
+            else:
                 button = rendered_button
             image = None
 
@@ -516,30 +549,6 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                 image = _draw_percentage_ring(pct, size)
 
         icon_convert_to_grayscale = False
-        
-        if button.text:
-            text = button.text
-        else:
-            match button.special_type:
-                case "climate-control":
-                    text = safe_load_yaml(
-                        f"""
-                        {{% if is_state('{entity_id}', 'heat') %}}
-                        {heat_color}
-                        {{% elif is_state('{entity_id}', 'cool') %}}
-                        {cool_color}
-                        {{% elif is_state('{entity_id}', 'heat_cool') or is_state('{entity_id}', 'auto') %}}
-                        {auto_color}
-                        {{% elif is_state('{entity_id}', 'off') %}}
-                        {off_color}
-                        {{% else %}}
-                        {unknown_color}
-                        {{% endif %}}"""
-                )
-                case _:
-                    text = None
-                    
-        
         text = button.text
         text_color = button.text_color or "white"
         icon_mdi = button.icon_mdi
@@ -614,7 +623,10 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         return image
 
     @staticmethod
-    def _validate_special_type_data(special_type: str, v: Any) -> Any:  # noqa: PLR0912
+    def _validate_special_type_data(  # noqa: C901 PLR0912
+        special_type: str,
+        v: Any,
+    ) -> Any:
         if special_type == "go-to-page" and not isinstance(v, (int, str)):
             msg = (
                 "If special_type is go-to-page, special_type_data must be an int or str"
@@ -1354,11 +1366,6 @@ class Config(BaseModel):
         self._current_page_index = self._parent_page_index
         return self.current_page()
 
-    def load_page_as_detached(self, page: Page) -> Page:
-        """Load a page."""
-        self._detached_page = page
-        return self.current_page()
-
 
 def _next_id() -> int:
     global _ID_COUNTER
@@ -1702,6 +1709,7 @@ def _light_page(
         + buttons_back,
     )
 
+
 def _climate_page(
     entity_id: str,
     complete_state: StateDict,
@@ -1710,42 +1718,38 @@ def _climate_page(
     name: str | None,
     deck_key_count: int,
 ) -> Page:
-    """Return a page of buttons for controlling lights."""
+    """Return a page of buttons for controlling climate."""
     console.log(f"Creating climate page for {entity_id}")
-    state = complete_state.get(entity_id, {})
 
-    current_temperature = state.get("attributes", {}).get(
-        "current_temperature",
-        "MISSING",
-    )
-    
     def format_temp(temp: float | None) -> str:
         if temp is None:
             return "?"
-        return f"{temp:.2f}".rstrip('0').rstrip('.')
-                 
+        return f"{temp:.2f}".rstrip("0").rstrip(".")
+
     def mode_button(mode: str) -> Button:
-        icon_mdi, text, text_color = get_climate_icon_text_and_color(mode)
+        mode_info = get_hvac_mode_info(mode)
         return Button(
             service="climate.set_hvac_mode",
             service_data={
                 "entity_id": entity_id,
                 "hvac_mode": mode,
             },
-            text=f"Set\n{text.capitalize()}",
-            text_color=text_color,
-            icon_mdi=icon_mdi,
+            text=f"Set\n{mode_info.text.capitalize()}",
+            text_color=mode_info.color,
+            icon_mdi=mode_info.icon_mdi,
         )
-      
-    button_status = [Button.climate_control_with_status(
-        entity_id=entity_id,
-        complete_state=complete_state,
-        display_climate_string=False,
-        display_mode=True,
-        open_climate_page_on_press=False,
-        name=name,
-        special_type_data=None,
-    )]
+
+    button_status = [
+        Button.climate_control_with_status(
+            entity_id=entity_id,
+            complete_state=complete_state,
+            display_climate_string=False,
+            display_mode=True,
+            open_climate_page_on_press=False,
+            name=name,
+            special_type_data=None,
+        ),
+    ]
     buttons_temperatures = [
         Button(
             service="climate.set_temperature",
@@ -1757,14 +1761,9 @@ def _climate_page(
         )
         for temperature in (temperatures or ())
     ]
-    buttons_hvac_modes = [
-        mode_button(mode)
-        for mode in (hvac_modes or [])
-    ]
+    buttons_hvac_modes = [mode_button(mode) for mode in (hvac_modes or [])]
     button_back = [
-        Button(
-            special_type="close-page"
-        ),
+        Button(special_type="close-page"),
     ]
     button_off = [
         Button(
@@ -1775,16 +1774,22 @@ def _climate_page(
     ]
     buttons_before_temperatures = button_status + button_off + buttons_hvac_modes
     buttons_after_temperatures_and_empty = button_back
-    n_empty_buttons = deck_key_count - len(buttons_before_temperatures) - len(buttons_temperatures) - len(buttons_after_temperatures_and_empty)
+    n_empty_buttons = (
+        deck_key_count
+        - len(buttons_before_temperatures)
+        - len(buttons_temperatures)
+        - len(buttons_after_temperatures_and_empty)
+    )
     if n_empty_buttons < 0:
         console.log(
-            f"Too many buttons in the climate page. Some might not be shown. The deck has {abs(n_empty_buttons)} too many buttons. Remove some temperatures or hvac modes.",
+            "Too many buttons in the climate page. Some might not be shown.\n"
+            "The page configuration has has {abs(n_empty_buttons)} too many buttons."
+            "Remove some temperatures or hvac modes.",
             style="red",
         )
         n_empty_buttons = 0
     # Create empty buttons to fill the remaining space, so that the close button is in the usual place.
     buttons_empty = [Button(special_type="empty")] * n_empty_buttons
-        
 
     return Page(
         name="Climate",
@@ -2705,7 +2710,7 @@ def _on_dial_event_callback(
     return dial_event_callback
 
 
-async def _handle_key_press(  # noqa: PLR0912 PLR0915
+async def _handle_key_press(  # noqa: PLR0915 C901
     websocket: websockets.WebSocketClientProtocol,
     complete_state: StateDict,
     config: Config,
@@ -2724,7 +2729,7 @@ async def _handle_key_press(  # noqa: PLR0912 PLR0915
         update_all_key_images(deck, config, complete_state)
         update_all_dials(deck, config, complete_state)
 
-    async def handle_press(
+    async def handle_press(  # noqa: PLR0912 PLR0915
         button: Button,
         entity_id: str | None = None,
         service: str | None = None,
@@ -2796,12 +2801,21 @@ async def _handle_key_press(  # noqa: PLR0912 PLR0915
             return  # to skip the _detached_page reset below
         elif special_type == "climate-control":
             assert isinstance(special_type_data, dict) or special_type_data is None
-            temperatures = special_type_data.get("temperatures", None)
-            hvac_modes = special_type_data.get("hvac_modes", None)
-            name = special_type_data.get("name", None)  # Pass name explicitly
+
+            if isinstance(special_type_data, dict):
+                temperatures = special_type_data.get("temperatures")
+                hvac_modes = special_type_data.get("hvac_modes")
+                name = special_type_data.get("name")
+            else:
+                temperatures = None
+                hvac_modes = None
+                name = None
+
             try:
                 if entity_id not in complete_state:
-                    console.log(f"Error: entity_id {entity_id} not found in complete_state")
+                    console.log(
+                        f"Error: entity_id {entity_id} not found in complete_state",
+                    )
                     return
                 page = _climate_page(
                     entity_id=entity_id,
@@ -2817,7 +2831,7 @@ async def _handle_key_press(  # noqa: PLR0912 PLR0915
             except Exception as e:
                 console.print_exception(show_locals=True)  # Log full stack trace
                 console.log(f"Error creating climate page: {e}")
-                return
+                raise
             return  # to skip the _detached_page reset below
         elif special_type == "reload":
             config.reload()

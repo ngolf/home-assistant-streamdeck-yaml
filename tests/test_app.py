@@ -26,6 +26,7 @@ from home_assistant_streamdeck_yaml import (
     IconWarning,
     InactivityState,
     Page,
+    _climate_page,
     _download_and_save_mdi,
     _download_spotify_image,
     _generate_uniform_hex_colors,
@@ -35,7 +36,6 @@ from home_assistant_streamdeck_yaml import (
     _is_state_attr,
     _keys,
     _light_page,
-    _climate_page,
     _named_to_hex,
     _on_press_callback,
     _render_jinja,
@@ -505,12 +505,12 @@ def test_climate_page() -> None:
         entity_id="dummy_entity_id",
         name="dummy_name",
         complete_state={},
-        temperatures=range(20, 24),
+        temperatures=(20, 21, 23, 24),
         hvac_modes=["off", "heat", "cool", "auto"],
         deck_key_count=deck_key_count,
     )
     buttons = page.buttons
-    assert len(page.buttons) == deck_key_count
+    assert len(buttons) == deck_key_count
 
 
 def test_url_to_filename() -> None:
