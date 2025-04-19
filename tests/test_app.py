@@ -43,7 +43,6 @@ from home_assistant_streamdeck_yaml import (
     _to_filename,
     _url_to_filename,
     get_states,
-    run,
     setup_ws,
     update_key_image,
 )
@@ -1278,5 +1277,3 @@ async def test_anonymous_page(
     await press_and_release(2)
     assert config._detached_page is None
     assert config.current_page() == home
-
-

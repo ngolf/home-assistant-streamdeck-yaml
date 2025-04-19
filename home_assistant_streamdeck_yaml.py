@@ -113,7 +113,7 @@ def get_hvac_mode_info(mode: str) -> HvacModeInfo:
         case "off":
             return HvacModeInfo(icon_mdi=None, text="OFF", color=None)
         case _:
-            return unknown_icon, unknown_text, unknown_color
+            return HvacModeInfo(icon_mdi="help", text="MODE UNK", color=None)
 
 
 class _ButtonDialBase(BaseModel, extra="forbid"):  # type: ignore[call-arg]
@@ -623,7 +623,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         return image
 
     @staticmethod
-    def _validate_special_type_data(  # noqa: C901 PLR0912
+    def _validate_special_type_data(  # noqa: C901 PLR0912 PLR0915
         special_type: str,
         v: Any,
     ) -> Any:
@@ -1115,7 +1115,9 @@ class Page(BaseModel):
                 return i
         return None
 
+    @staticmethod
     def connection_page(deck: StreamDeck) -> Page:
+        """Create a page with connection buttons."""
         connection_buttons = [
             Button(special_type="network-status"),
             Button(special_type="ha-status"),
@@ -2728,7 +2730,7 @@ async def _handle_key_press(  # noqa: PLR0915 C901
         update_all_key_images(deck, config, complete_state)
         update_all_dials(deck, config, complete_state)
 
-    async def handle_press(  # noqa: PLR0912 PLR0915
+    async def handle_press(  # noqa: PLR0912 PLR0915 C901 PLR0911
         button: Button,
         entity_id: str | None = None,
         service: str | None = None,
@@ -2775,9 +2777,14 @@ async def _handle_key_press(  # noqa: PLR0915 C901
             return  # to skip the _detached_page reset below
         elif special_type == "climate-control":
             assert isinstance(special_type_data, dict) or special_type_data is None
-            temperatures = special_type_data.get("temperatures", None)
-            hvac_modes = special_type_data.get("hvac_modes", None)
-            name = special_type_data.get("name", None)  # Pass name explicitly
+            if isinstance(special_type_data, dict):
+                temperatures = special_type_data.get("temperatures")
+                hvac_modes = special_type_data.get("hvac_modes")
+                name = special_type_data.get("name")  # Pass name explicitly
+            else:
+                temperatures = None
+                hvac_modes = None
+                name = None
             try:
                 if entity_id not in complete_state:
                     console.log(
@@ -3231,17 +3238,23 @@ def update_all_key_images(
         )
 
 
-async def is_network_available(host="8.8.8.8", port=53, timeout=3) -> bool:
+async def is_network_available(
+    host: str = "8.8.8.8",
+    port: int = 53,
+    timeout: int = 3,
+) -> bool:
+    """Check if the network is available by trying to connect to a host."""
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port),
             timeout,
         )
+    except (OSError, asyncio.TimeoutError):
+        return False
+    else:
         writer.close()
         await writer.wait_closed()
         return True
-    except Exception:
-        return False
 
 
 async def run(
@@ -3257,8 +3270,8 @@ async def run(
     attempt = 0
     global is_network_connected
     global is_ha_connected
-    network_page = Page.network_page(deck)
-    network_page_opened_by_self = False
+    connection_page = Page.connection_page(deck)
+    connection_page_opened_by_self = False
 
     while retry_attempts == math.inf or attempt <= retry_attempts:
         try:
@@ -3273,11 +3286,10 @@ async def run(
                     if (
                         is_network_connected
                         and is_ha_connected
-                        and network_page_opened_by_self
-                        and Config.current_page() == network_page
+                        and connection_page_opened_by_self
+                        and config.current_page() == connection_page
                     ):
-                        Config.close_page()
-
+                        config.close_page()
                     attempt = 0  # Reset attempt counter on successful connect
                     # Initialize shared inactivity state
                     inactivity_state = InactivityState()
@@ -3329,8 +3341,8 @@ async def run(
             is_network_connected = await is_network_available()
             is_ha_connected = False
 
-            Config.load_page_as_detached(Page.connection_page(deck))
-            update_all_key_images(deck, config=config, complete_state=None)
+            config.load_page_as_detached(Page.connection_page(deck))
+            update_all_key_images(deck, config=config, complete_state={})
             attempt += 1
             console.log(f"[WARNING] WebSocket connection failed: {e}")
             if retry_attempts != math.inf and attempt > retry_attempts:
