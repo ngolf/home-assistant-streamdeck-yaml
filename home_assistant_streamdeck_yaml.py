@@ -684,8 +684,6 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                         raise AssertionError(msg)  # noqa: TRY004
                 # Cast brightnesses to tuple (to make it hashable)
                 v["brightnesses"] = tuple(v["brightnesses"])
-                # Cast brightness to tuple (to make it hashable)
-                v["brightness"] = tuple(v["brightness"])
         if special_type == "climate-control":
             if v is None:
                 v = {}
@@ -3267,15 +3265,15 @@ async def run(
                     is_network_connected = await is_network_available()
                     is_ha_connected = True
 
-                # Close the network page if network is OK, and network page
-                # was opened by this script and is still open.
-                if (
-                    is_network_connected
-                    and is_ha_connected
-                    and network_page_opened_by_self
-                    and Config.current_page() == network_page
-                ):
-                    Config.close_page()
+                    # Close the network page if network is OK, and network page
+                    # was opened by this script and is still open.
+                    if (
+                        is_network_connected
+                        and is_ha_connected
+                        and network_page_opened_by_self
+                        and Config.current_page() == network_page
+                    ):
+                        Config.close_page()
 
                     attempt = 0  # Reset attempt counter on successful connect
                     # Initialize shared inactivity state
