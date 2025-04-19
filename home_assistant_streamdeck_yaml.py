@@ -487,7 +487,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         
         return cls(**button_kwargs)
 
-    def render_icon(  # noqa: PLR0912 PLR0915 C901
+    def render_icon(  # noqa: PLR0912 PLR0915 C901 C901
         self,
         complete_state: StateDict,
         *,
@@ -1330,12 +1330,6 @@ class Config(BaseModel):
         console.log(f"Could find page {page}, staying on current page")
         return self.current_page()
 
-    def close_page(self) -> Page:
-        """Close the current page."""
-        self._detached_page = None
-        self._current_page_index = self._parent_page_index
-        return self.current_page()
-
     def load_page_as_detached(self, page: Page) -> None:
         """Load a page as detached."""
         self._detached_page = page
@@ -1344,6 +1338,11 @@ class Config(BaseModel):
         """Close the detached page."""
         self._detached_page = None
 
+    def close_page(self) -> Page:
+        """Close the current page."""
+        self._detached_page = None
+        self._current_page_index = self._parent_page_index
+        return self.current_page()
 
 
 def _next_id() -> int:
