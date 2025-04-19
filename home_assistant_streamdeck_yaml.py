@@ -3288,6 +3288,7 @@ async def run(
 ) -> None:
     """Main entry point for the Stream Deck integration, with retry logic."""
     deck = get_deck()
+    deck.set_brightness(config.brightness)
     attempt = 0
     global is_network_connected
     global is_ha_connected
