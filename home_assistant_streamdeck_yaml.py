@@ -1140,6 +1140,7 @@ class Page(BaseModel):
         return Page(
             name="Connection-auto",
             buttons=buttons,
+            close_on_inactivity_timer=False,
         )
 
     @classmethod
