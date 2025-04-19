@@ -3294,6 +3294,7 @@ async def run(
     connection_page = Page.connection_page(deck)
     connection_page_opened_by_self = False
     inactivity_state = InactivityState()
+    deck.set_brightness(config.brightness)
     while retry_attempts == math.inf or attempt <= retry_attempts:
         try:
             async with setup_ws(host, token, protocol) as websocket:
@@ -3314,7 +3315,6 @@ async def run(
                     attempt = 0  # Reset attempt counter on successful connect
                     # Initialize shared inactivity state
 
-                    deck.set_brightness(config.brightness)
                     # Turn on state entity boolean on home assistant
                     await _sync_input_boolean(config.state_entity_id, websocket, "on")
                     update_all_key_images(deck, config, complete_state)
@@ -3345,7 +3345,6 @@ async def run(
                                 config,
                             ),  # Fixed
                         )
-                    deck.set_brightness(config.brightness)
                     await subscribe_state_changes(websocket)
                     await handle_changes(websocket, complete_state, deck, config)
                 finally:
