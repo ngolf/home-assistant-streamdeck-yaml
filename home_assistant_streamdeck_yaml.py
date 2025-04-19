@@ -487,7 +487,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         
         return cls(**button_kwargs)
 
-    def render_icon(  # noqa: PLR0912 PLR0915
+    def render_icon(  # noqa: PLR0912 PLR0915 C901
         self,
         complete_state: StateDict,
         *,
@@ -1335,6 +1335,15 @@ class Config(BaseModel):
         self._detached_page = None
         self._current_page_index = self._parent_page_index
         return self.current_page()
+
+    def load_page_as_detached(self, page: Page) -> None:
+        """Load a page as detached."""
+        self._detached_page = page
+
+    def close_detached_page(self) -> None:
+        """Close the detached page."""
+        self._detached_page = None
+
 
 
 def _next_id() -> int:
@@ -2655,7 +2664,7 @@ def _on_dial_event_callback(
     return dial_event_callback
 
 
-async def _handle_key_press(
+async def _handle_key_press(  # noqa: PLR0912
     websocket: websockets.WebSocketClientProtocol,
     complete_state: StateDict,
     config: Config,
@@ -2711,7 +2720,7 @@ async def _handle_key_press(
                     brightness=special_type_data.get("brightness", None),
                     deck_key_count=deck.key_count(),
                 )
-                config._detached_page = page
+                config.load_page_as_detached(page)
                 update_all()
             except Exception as e:
                 console.print_exception(show_locals=True)
@@ -2735,7 +2744,7 @@ async def _handle_key_press(
                     deck_key_count=deck.key_count(),
                 )
                 console.log(f"got detached page {page}")
-                config._detached_page = page
+                config.load_page_as_detached(page)
                 update_all()
             except Exception as e:
                 console.print_exception(show_locals=True)  # Log full stack trace
@@ -2758,8 +2767,41 @@ async def _handle_key_press(
             await call_service(websocket, service, service_data, target)
 
         if config._detached_page:
-            config._detached_page = None
+            config.close_detached_page()
             update_all()
+
+    if is_long_press:
+        if button.long_press:
+            await handle_press(
+                entity_id=button.long_press.get("entity_id", button.entity_id),
+                service=button.long_press.get("service"),
+                service_data=button.long_press.get("service_data"),
+                target=button.long_press.get("target", button.target),
+                special_type=button.long_press.get("special_type"),
+                special_type_data=button.long_press.get("special_type_data"),
+                button=button,
+            )
+        else:
+            console.log(
+                f"Long press detected, but no long press action defined for {button.entity_id}",
+            )
+            return
+    else:
+        await handle_press(
+            entity_id=button.entity_id,
+            service=button.service,
+            service_data=button.service_data,
+            target=button.target,
+            special_type=button.special_type,
+            special_type_data=button.special_type_data,
+            button=button,
+        )
+
+
+    if config._detached_page:
+        config.close_detached_page()
+        update_all()
+
 
     if is_long_press:
         if button.long_press:
