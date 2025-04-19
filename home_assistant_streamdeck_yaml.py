@@ -1124,8 +1124,9 @@ class Page(BaseModel):
         ]
         close_button = [Button(special_type="close-page")]
         n_assigned_buttons = len(connection_buttons) + len(close_button)
+        deck_key_count: int = deck.key_count()
         empty_buttons = [Button(special_type="empty")] * (
-            deck.key_count() - n_assigned_buttons
+            deck_key_count - n_assigned_buttons
         )
         buttons = connection_buttons + empty_buttons + close_button
         return Page(
