@@ -75,7 +75,7 @@ LCD_PIXELS_Y = 100
 LCD_ICON_SIZE_X = 200
 LCD_ICON_SIZE_Y = 100
 
-press_start_times: Dict[int, float] = (
+press_start_times: dict[int, float] = (
     {}
 )  # Dictionary to store press start times per key.
 
@@ -630,25 +630,21 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         )
         return image
 
-    @validator("special_type_data")
-    def _validate_special_type(  # noqa: PLR0912
-        cls: type[Button],
-        v: Any,
-        values: dict[str, Any],
-    ) -> Any:
-        """Validate the special_type_data."""
-        special_type = values["special_type"]
+    @staticmethod
+    def _validate_special_type_data(special_type: str, v: Any) -> Any:  # noqa: PLR0912
         if special_type == "go-to-page" and not isinstance(v, (int, str)):
             msg = (
                 "If special_type is go-to-page, special_type_data must be an int or str"
             )
             raise AssertionError(msg)
+
         if (
             special_type in {"next-page", "previous-page", "empty", "turn-off"}
             and v is not None
         ):
             msg = f"special_type_data needs to be empty with {special_type=}"
             raise AssertionError(msg)
+
         if special_type == "light-control":
             if v is None:
                 v = {}
@@ -658,7 +654,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                     f" be a dict, not '{v}'"
                 )
                 raise AssertionError(msg)
-            # Can only have the following keys: colors and colormap
+
             allowed_keys = {"colors", "colormap", "color_temp_kelvin", "brightness"}
             invalid_keys = v.keys() - allowed_keys
             if invalid_keys:
@@ -666,6 +662,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                     f"Invalid keys in 'special_type_data', only {allowed_keys} allowed"
                 )
                 raise AssertionError(msg)
+
             # If colors is present, it must be a list of strings
             if "colors" in v:
                 if not isinstance(v["colors"], (tuple, list)):
@@ -677,6 +674,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                         raise AssertionError(msg)  # noqa: TRY004
                 # Cast colors to tuple (to make it hashable)
                 v["colors"] = tuple(v["colors"])
+
             if "color_temp_kelvin" in v:
                 for kelvin in v["color_temp_kelvin"]:
                     if not isinstance(kelvin, int):
@@ -716,14 +714,26 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                         raise AssertionError(msg)  # noqa: TRY004
                 # Cast temperatures to tuple (to make it hashable)
                 v["temperatures"] = tuple(v["temperatures"])
+
         return v
 
+    @validator("special_type_data")
+    def _validate_special_type(
+        cls: type[Button],
+        v: Any,
+        values: dict[str, Any],
+    ) -> Any:
+        """Validate the special_type_data."""
+        special_type = values["special_type"]
+        return cls._validate_special_type_data(special_type, v)
+
     @validator("long_press", pre=True)
-    def _validate_long_press(cls, v: Any, values: dict[str, Any]) -> Any:
+    def _validate_long_press(cls, v: Any) -> Any:
         if v is None:
             return None
         if not isinstance(v, dict):
-            raise ValueError("long_press must be a dictionary")
+            msg = "long_press must be a dictionary"
+            raise TypeError(msg)
         allowed_keys = {
             "service",
             "service_data",
@@ -733,15 +743,17 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         }
         invalid_keys = set(v.keys()) - allowed_keys
         if invalid_keys:
-            raise ValueError(
-                f"Invalid keys in long_press: {invalid_keys}. Allowed: {allowed_keys}",
-            )
+            msg = f"Invalid keys in long_press: {invalid_keys}. Allowed: {allowed_keys}"
+            raise AssertionError(msg)
         if "service" in v and not isinstance(v["service"], str):
-            raise ValueError("long_press.service must be a string")
+            msg = "long_press.service must be a string"
+            raise AssertionError(msg)
         if "service_data" in v and not isinstance(v["service_data"], dict):
-            raise ValueError("long_press.service_data must be a dictionary")
+            msg = "long_press.service_data must be a dictionary"
+            raise AssertionError(msg)
         if "entity_id" in v and not isinstance(v["entity_id"], str):
-            raise ValueError("long_press.entity_id must be a string")
+            msg = "long_press.entity_id must be a string"
+            raise AssertionError(msg)
         if "special_type" in v:
             allowed_special_types = {
                 "next-page",
@@ -755,18 +767,14 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                 "reload",
             }
             if v["special_type"] not in allowed_special_types:
-                raise ValueError(
-                    f"long_press.special_type must be one of {allowed_special_types}",
-                )
+                msg = f"long_press.special_type must be one of {allowed_special_types} (got {v['special_type']})"
+                raise AssertionError(msg)
         if "special_type_data" in v and "special_type" not in v:
-            raise ValueError(
-                "long_press.special_type_data requires special_type to be set",
-            )
+            msg = "long_press.special_type_data requires special_type to be set"
+            raise AssertionError(msg)
         if "special_type" in v and "special_type_data" in v:
-            cls._validate_special_type(
-                v["special_type_data"],
-                {"special_type": v["special_type"]},
-            )
+            cls._validate_special_type_data(v["special_type"], v["special_type_data"])
+
         return v
 
     @classmethod
@@ -2663,13 +2671,14 @@ def _on_dial_event_callback(
     return dial_event_callback
 
 
-async def _handle_key_press(  # noqa: PLR0912
+async def _handle_key_press(  # noqa: PLR0912 PLR0915
     websocket: websockets.WebSocketClientProtocol,
     complete_state: StateDict,
     config: Config,
     button: Button,
     deck: StreamDeck,
-    is_long_press: bool = False,
+    *,
+    is_long_press: bool,
 ) -> None:
     if not config._is_on:
         turn_on(config, deck, complete_state)
@@ -2724,6 +2733,32 @@ async def _handle_key_press(  # noqa: PLR0912
             except Exception as e:
                 console.print_exception(show_locals=True)
                 console.log(f"Error while creating light page: {e}")
+                raise
+            return  # to skip the _detached_page reset below
+        elif special_type == "climate-control":
+            assert isinstance(special_type_data, dict) or special_type_data is None
+            temperatures = special_type_data.get("temperatures", None)
+            hvac_modes = special_type_data.get("hvac_modes", None)
+            name = special_type_data.get("name", None)  # Pass name explicitly
+            try:
+                if entity_id not in complete_state:
+                    console.log(f"Error: entity_id {entity_id} not found in complete_state")
+                    return
+                page = _climate_page(
+                    entity_id=entity_id,
+                    complete_state=complete_state,
+                    temperatures=temperatures,
+                    hvac_modes=hvac_modes,
+                    name=name,
+                    deck_key_count=deck.key_count(),
+                )
+                console.log(f"got detached page {page}")
+                config.load_page_as_detached(page)
+                update_all()
+            except Exception as e:
+                console.print_exception(show_locals=True)  # Log full stack trace
+                console.log(f"Error creating climate page: {e}")
+                raise
             return  # to skip the _detached_page reset below
         elif special_type == "climate-control":
             assert isinstance(special_type_data, dict) or special_type_data is None
@@ -2760,8 +2795,6 @@ async def _handle_key_press(  # noqa: PLR0912
                 service_data = {}
                 if entity_id is not None:
                     service_data["entity_id"] = entity_id
-            else:
-                service_data = service_data
             assert service is not None  # for mypy
             await call_service(websocket, service, service_data, target)
 
@@ -2836,8 +2869,8 @@ def _on_press_callback(
     complete_state: StateDict,
     config: Config,
 ) -> Callable[[StreamDeck, int, bool], Coroutine[StreamDeck, int, None]]:
-    press_tasks: Dict[int, asyncio.Task] = {}  # Track ongoing press tasks
-    press_start_times: Dict[int, float] = {}  # Track press start times
+    press_tasks: dict[int, asyncio.Task] = {}  # Track ongoing press tasks
+    press_start_times: dict[int, float] = {}  # Track press start times
     long_press_threshold = config.long_press_duration
 
     async def key_change_callback(
@@ -2865,7 +2898,7 @@ def _on_press_callback(
                 key_pressed=True,
             )
 
-            async def monitor_long_press():
+            async def monitor_long_press() -> None:
                 try:
                     await asyncio.sleep(long_press_threshold)
                     if key in press_start_times:  # Button still pressed
@@ -2882,7 +2915,9 @@ def _on_press_callback(
                                 is_long_press=True,
                             )
                         except Exception as e:
+                            console.print_exception(show_locals=True)
                             console.log(f"Error in long press handling: {e}")
+                            raise
                         # Update key image to unpressed state after long press
                         update_key_image(
                             deck,
@@ -2898,6 +2933,7 @@ def _on_press_callback(
                     console.log(
                         f"Unexpected error in long press monitor for key {key}: {e}",
                     )
+                    raise
 
             press_tasks[key] = asyncio.create_task(monitor_long_press())
 
@@ -2939,6 +2975,7 @@ def _on_press_callback(
                             )
                         except Exception as e:
                             console.log(f"Error in short press handling: {e}")
+                            raise
 
                     if button.maybe_start_or_cancel_timer(cb):
                         console.log(
