@@ -84,10 +84,10 @@ console = Console()
 StateDict: TypeAlias = dict[str, dict[str, Any]]
 
 
-
 # Globals or context-level shared state
 is_network_connected: bool = False
 is_ha_connected: bool = False
+
 
 class HvacModeInfo(NamedTuple):
     """Aggregates some data to draw buttons representing a hvac mode."""
@@ -114,7 +114,7 @@ def get_hvac_mode_info(mode: str) -> HvacModeInfo:
             return HvacModeInfo(icon_mdi=None, text="OFF", color=None)
         case _:
             return unknown_icon, unknown_text, unknown_color
-       
+
 
 class _ButtonDialBase(BaseModel, extra="forbid"):  # type: ignore[call-arg]
     """Parent of Button and Dial."""
@@ -499,7 +499,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
 
         return cls(**button_kwargs)
 
-    def render_icon(  # noqa: PLR0912 PLR0915 C901 C901
+    def render_icon(  # noqa: PLR0912, PLR0915, C901
         self,
         complete_state: StateDict,
         *,
@@ -1797,6 +1797,7 @@ def _climate_page(
         + buttons_after_temperatures_and_empty,
     )
 
+
 @asynccontextmanager
 async def setup_ws(
     host: str,
@@ -2779,7 +2780,9 @@ async def _handle_key_press(  # noqa: PLR0915 C901
             name = special_type_data.get("name", None)  # Pass name explicitly
             try:
                 if entity_id not in complete_state:
-                    console.log(f"Error: entity_id {entity_id} not found in complete_state")
+                    console.log(
+                        f"Error: entity_id {entity_id} not found in complete_state",
+                    )
                     return
                 page = _climate_page(
                     entity_id=entity_id,
@@ -3284,32 +3287,30 @@ async def run(
                     update_all_key_images(deck, config, complete_state)
                     deck.set_key_callback_async(
                         _on_press_callback(
-                    inactivity_state,
-                    websocket,
-                    complete_state,
-                    config,
-                ),  # Fixed
+                            inactivity_state,
+                            websocket,
+                            complete_state,
+                            config,
+                        ),  # Fixed
                     )
                     update_all_dials(deck, config, complete_state)
                     if deck.dial_count() != 0:
                         deck.set_dial_callback_async(
                             _on_dial_event_callback(
-                        inactivity_state,
-                        websocket,
-                        complete_state,
-                        config,
-                    ),  # Fixed
+                                inactivity_state,
+                                websocket,
+                                complete_state,
+                                config,
+                            ),  # Fixed
                         )
                     if deck.is_visual():
                         deck.set_touchscreen_callback_async(
                             _on_touchscreen_event_callback(
-                        inactivity_state,
-                        websocket,
-                               
-                        complete_state,
-                               
-                        config,
-                    ),  # Fixed
+                                inactivity_state,
+                                websocket,
+                                complete_state,
+                                config,
+                            ),  # Fixed
                         )
                     deck.set_brightness(config.brightness)
                     await subscribe_state_changes(websocket)
