@@ -438,7 +438,8 @@ def test_light_page() -> None:
         colormap="hsv",
         colors=None,
         color_temp_kelvin=None,
-        brightness=None,
+        brightnesses=None,
+        deck_key_count=BUTTONS_PER_PAGE,
     )
     buttons = page.buttons
     assert len(buttons) == BUTTONS_PER_PAGE
@@ -450,7 +451,8 @@ def test_light_page() -> None:
         colormap=None,
         colors=None,
         color_temp_kelvin=None,
-        brightness=None,
+        brightnesses=None,
+        deck_key_count=BUTTONS_PER_PAGE,
     )
     buttons = page.buttons
     assert len(buttons) == BUTTONS_PER_PAGE
@@ -475,9 +477,23 @@ def test_light_page() -> None:
         colormap=None,
         colors=hex_colors,
         color_temp_kelvin=None,
-        brightness=None,
+        brightnesses=None,
+        deck_key_count=BUTTONS_PER_PAGE,
     )
     buttons = page.buttons
+
+    # Check that we fill the page with buttons to have close-page in the same position
+    page = _light_page(
+        entity_id="light.bedroom",
+        n_colors=0,
+        colormap=None,
+        colors=None,
+        color_temp_kelvin=None,
+        brightnesses=(0, 100),
+        deck_key_count=BUTTONS_PER_PAGE,
+    )
+    buttons = page.buttons
+    assert len(buttons) == BUTTONS_PER_PAGE
 
 
 def test_climate_page() -> None:

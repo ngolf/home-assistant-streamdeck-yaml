@@ -17,7 +17,7 @@
       - 3521  # from default HA options
       - 5025  # from default HA options
       - 6535  # from default HA options
-    brightness:
+    brightnesses:
       - 0
       - 10
       - 50

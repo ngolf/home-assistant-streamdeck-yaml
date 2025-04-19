@@ -332,7 +332,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         " The `colormap` key and a value a colormap (https://matplotlib.org/stable/tutorials/colors/colormaps.html)"
         " can be used. This requires the `matplotlib` package to be installed. If no"
         " list of `colors` or `colormap` is specified, 10 equally spaced colors are used."
-        " The `brightness` key and a value a brightness level (0-100)."
+        " The `brightnesses` key and a value of brightness level (0-100)."
         " If `climate-control`, the data should optionally be a dictionary."
         " The dictionary can contain the following keys:"
         " The `temperatures` key and a value a list of max (`n_keys_on_streamdeck - 5`) temperatures in Celsius."
@@ -655,7 +655,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                 )
                 raise AssertionError(msg)
 
-            allowed_keys = {"colors", "colormap", "color_temp_kelvin", "brightness"}
+            allowed_keys = {"colors", "colormap", "color_temp_kelvin", "brightnesses"}
             invalid_keys = v.keys() - allowed_keys
             if invalid_keys:
                 msg = (
@@ -682,11 +682,13 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                         raise AssertionError(msg)  # noqa: TRY004
                 # Cast color_temp_kelvin to tuple (to make it hashable)
                 v["color_temp_kelvin"] = tuple(v["color_temp_kelvin"])
-            if "brightness" in v:
-                for brightness in v["brightness"]:
+            if "brightnesses" in v:
+                for brightness in v["brightnesses"]:
                     if not isinstance(brightness, int):
-                        msg = "All brightness must be integers"
+                        msg = "All brightnesses must be integers"
                         raise AssertionError(msg)  # noqa: TRY004
+                # Cast brightnesses to tuple (to make it hashable)
+                v["brightnesses"] = tuple(v["brightnesses"])
                 # Cast brightness to tuple (to make it hashable)
                 v["brightness"] = tuple(v["brightness"])
         if special_type == "climate-control":
@@ -1618,7 +1620,7 @@ def _light_page(
     colors: tuple[str, ...] | None,
     color_temp_kelvin: tuple[int, ...] | None,
     colormap: str | None,
-    brightness: tuple[int, ...] | None,
+    brightnesses: tuple[int, ...] | None,
 ) -> Page:
     """Return a page of buttons for controlling lights."""
     if colormap is None and colors is None:
@@ -1649,7 +1651,7 @@ def _light_page(
         for kelvin in (color_temp_kelvin or ())
     ]
     buttons_brightness = []
-    for brightness in brightness if brightness is not None else [0, 33, 66, 100]:
+    for brightness in brightnesses if brightnesses is not None else [0, 33, 66, 100]:
         background_color = _scale_hex_color("#FFFFFF", brightness / 100)
         button = Button(
             icon_background_color=background_color,
@@ -1664,7 +1666,10 @@ def _light_page(
         buttons_brightness.append(button)
     buttons_back = [Button(special_type="close-page")]
     number_of_buttons_except_close_and_empty = (
-        len(buttons_colors) + len(buttons_color_temp_kelvin) + len(buttons_brightness) + len(buttons_back)
+        len(buttons_colors)
+        + len(buttons_color_temp_kelvin)
+        + len(buttons_brightness)
+        + len(buttons_back)
     )
     number_of_empty_buttons = deck_key_count - number_of_buttons_except_close_and_empty
     if number_of_empty_buttons > 0:
@@ -1678,8 +1683,8 @@ def _light_page(
             colors: {colors}
             color_temp_kelvin: {color_temp_kelvin}
             colormap: {colormap}
-            brightness: {brightness}
-            """
+            brightnesses: {brightnesses}
+            """,
         )
         buttons_empty = []
 
@@ -2725,7 +2730,7 @@ async def _handle_key_press(  # noqa: PLR0912 PLR0915
                     colormap=special_type_data.get("colormap", None),
                     colors=special_type_data.get("colors", None),
                     color_temp_kelvin=special_type_data.get("color_temp_kelvin", None),
-                    brightness=special_type_data.get("brightness", None),
+                    brightnesses=button.special_type_data.get("brightnesses", None),
                     deck_key_count=deck.key_count(),
                 )
                 config.load_page_as_detached(page)
@@ -2801,39 +2806,6 @@ async def _handle_key_press(  # noqa: PLR0912 PLR0915
         if config._detached_page:
             config.close_detached_page()
             update_all()
-
-    if is_long_press:
-        if button.long_press:
-            await handle_press(
-                entity_id=button.long_press.get("entity_id", button.entity_id),
-                service=button.long_press.get("service"),
-                service_data=button.long_press.get("service_data"),
-                target=button.long_press.get("target", button.target),
-                special_type=button.long_press.get("special_type"),
-                special_type_data=button.long_press.get("special_type_data"),
-                button=button,
-            )
-        else:
-            console.log(
-                f"Long press detected, but no long press action defined for {button.entity_id}",
-            )
-            return
-    else:
-        await handle_press(
-            entity_id=button.entity_id,
-            service=button.service,
-            service_data=button.service_data,
-            target=button.target,
-            special_type=button.special_type,
-            special_type_data=button.special_type_data,
-            button=button,
-        )
-
-
-    if config._detached_page:
-        config.close_detached_page()
-        update_all()
-
 
     if is_long_press:
         if button.long_press:
