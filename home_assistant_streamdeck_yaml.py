@@ -1795,8 +1795,6 @@ async def setup_ws(
     """Set up the connection to Home Assistant."""
     uri = f"{protocol}://{host}/api/websocket"
     ssl_context = ssl.create_default_context()
-    if allow_weaker_ssl:
-        ssl_context.set_ciphers("DEFAULT@SECLEVEL=1")
     while True:
         try:
             # limit size to 10 MiB
@@ -1814,6 +1812,9 @@ async def setup_ws(
             # Connection was reset, retrying in 3 seconds
             console.print_exception(show_locals=True)
             console.log("Connection was reset, retrying in 3 seconds")
+            if allow_weaker_ssl:
+                ssl_context.set_ciphers("DEFAULT@SECLEVEL=1")
+                console.log("Using weaker SSL settings")
             await asyncio.sleep(5)
 
 
