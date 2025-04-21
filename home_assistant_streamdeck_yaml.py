@@ -76,9 +76,7 @@ LCD_PIXELS_Y = 100
 LCD_ICON_SIZE_X = 200
 LCD_ICON_SIZE_Y = 100
 
-press_start_times: dict[int, float] = (
-    {}
-)  # Dictionary to store press start times per key.
+press_start_times: dict[int, float] = {}  # Dictionary to store press start times per key.
 
 console = Console()
 StateDict: TypeAlias = dict[str, dict[str, Any]]
@@ -429,9 +427,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             + format_temp(current_temperature)
             + (
                 f" -> {format_temp(current_temperature)}"
-                if current_mode
-                and current_mode.lower() != "off"
-                and current_temperature
+                if current_mode and current_mode.lower() != "off" and current_temperature
                 else ""
             )
             + "°C\n"
@@ -454,9 +450,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             if ("text" not in button_kwargs or button_kwargs["text"] is None)
             else button_kwargs["text"]
         )
-        lines = (
-            text.rstrip("\n").count("\n") + 1
-        )  # Add 1 for the last line (no trailing \n)
+        lines = text.rstrip("\n").count("\n") + 1  # Add 1 for the last line (no trailing \n)
 
         # Compute text_offset based on text_size (handle None explicitly)
         text_size = button_kwargs.get("text_size", 12)
@@ -482,9 +476,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             {
                 "entity_id": entity_id,
                 "text_offset": computed_text_offset,
-                "special_type": (
-                    "climate-control" if open_climate_page_on_press else None
-                ),
+                "special_type": ("climate-control" if open_climate_page_on_press else None),
                 "special_type_data": (
                     special_type_data
                     if special_type_data is not None
@@ -521,11 +513,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                     display_climate_string=True,
                     display_mode=False,
                     open_climate_page_on_press=True,
-                    name=(
-                        self.special_type_data.get("name")
-                        if self.special_type_data
-                        else None
-                    ),
+                    name=(self.special_type_data.get("name") if self.special_type_data else None),
                     special_type_data=self.special_type_data,
                     base_button=rendered_button,  # Pass self to preserve attributes
                 )
@@ -612,7 +600,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         if icon_convert_to_grayscale:
             image = _convert_to_grayscale(image)
 
-        _add_text(
+        return _add_text_to_image(
             image=image,
             font_filename=font_filename,
             text_size=button.text_size,
@@ -620,7 +608,6 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             text_color=text_color if not key_pressed else "green",
             text_offset=button.text_offset,
         )
-        return image
 
     @staticmethod
     def _validate_special_type_data(  # noqa: C901 PLR0912 PLR0915
@@ -628,15 +615,9 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         v: Any,
     ) -> Any:
         if special_type == "go-to-page" and not isinstance(v, (int, str)):
-            msg = (
-                "If special_type is go-to-page, special_type_data must be an int or str"
-            )
+            msg = "If special_type is go-to-page, special_type_data must be an int or str"
             raise AssertionError(msg)
-
-        if (
-            special_type in {"next-page", "previous-page", "empty", "turn-off"}
-            and v is not None
-        ):
+        if special_type in {"next-page", "previous-page", "empty", "turn-off"} and v is not None:
             msg = f"special_type_data needs to be empty with {special_type=}"
             raise AssertionError(msg)
 
@@ -644,18 +625,13 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             if v is None:
                 v = {}
             if not isinstance(v, dict):
-                msg = (
-                    "With 'light-control', 'special_type_data' must"
-                    f" be a dict, not '{v}'"
-                )
+                msg = f"With 'light-control', 'special_type_data' must be a dict, not '{v}'"
                 raise AssertionError(msg)
 
             allowed_keys = {"colors", "colormap", "color_temp_kelvin", "brightnesses"}
             invalid_keys = v.keys() - allowed_keys
             if invalid_keys:
-                msg = (
-                    f"Invalid keys in 'special_type_data', only {allowed_keys} allowed"
-                )
+                msg = f"Invalid keys in 'special_type_data', only {allowed_keys} allowed"
                 raise AssertionError(msg)
 
             # If colors is present, it must be a list of strings
@@ -688,18 +664,13 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             if v is None:
                 v = {}
             if not isinstance(v, dict):
-                msg = (
-                    "With 'climate-control', 'special_type_data' must"
-                    f" be a dict, not '{v}'"
-                )
+                msg = f"With 'climate-control', 'special_type_data' must be a dict, not '{v}'"
                 raise AssertionError(msg)
             # Can only have the following keys: temperatures and name
             allowed_keys = {"temperatures", "name", "hvac_modes"}
             invalid_keys = v.keys() - allowed_keys
             if invalid_keys:
-                msg = (
-                    f"Invalid keys in 'special_type_data', only {allowed_keys} allowed"
-                )
+                msg = f"Invalid keys in 'special_type_data', only {allowed_keys} allowed"
                 raise AssertionError(msg)
             # If temperatures is present, it must be a list of integers
             if "temperatures" in v:
@@ -952,10 +923,7 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             text_color = dial.text_color or "white"
 
             assert dial.entity_id is not None
-            if (
-                complete_state[dial.entity_id]["state"] == "off"
-                and dial.icon_gray_when_off
-            ):
+            if complete_state[dial.entity_id]["state"] == "off" and dial.icon_gray_when_off:
                 icon_convert_to_grayscale = True
 
             if image is None:
@@ -971,7 +939,7 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             if icon_convert_to_grayscale:
                 image = _convert_to_grayscale(image)
 
-            _add_text(
+            return _add_text_to_image(
                 image=image,
                 font_filename=font_filename,
                 text_size=self.text_size,
@@ -979,7 +947,6 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                 text_color=text_color,
                 text_offset=self.text_offset,
             )
-            return image  # noqa: TRY300
 
         except ValueError as e:
             console.log(e)
@@ -1133,9 +1100,7 @@ class Page(BaseModel):
         close_button = [Button(special_type="close-page")]
         n_assigned_buttons = len(connection_buttons) + len(close_button)
         deck_key_count: int = deck.key_count()
-        empty_buttons = [Button(special_type="empty")] * (
-            deck_key_count - n_assigned_buttons
-        )
+        empty_buttons = [Button(special_type="empty")] * (deck_key_count - n_assigned_buttons)
         buttons = connection_buttons + empty_buttons + close_button
         return Page(
             name="Connection-auto",
@@ -1620,7 +1585,7 @@ def _generate_uniform_hex_colors(n_colors: int) -> tuple[str, ...]:
 
     def hsv_to_hex(hsv: tuple[float, float, float]) -> str:
         """Convert an HSV color tuple to a hex color string."""
-        rgb = tuple(int(round(x * 255)) for x in colorsys.hsv_to_rgb(*hsv))
+        rgb = tuple(round(x * 255) for x in colorsys.hsv_to_rgb(*hsv))
         return "#{:02x}{:02x}{:02x}".format(*rgb)
 
     hues = generate_hues(n_colors)
@@ -1890,9 +1855,7 @@ async def handle_changes(
         last_modified_time = edit_time(config._configuration_file)
         while True:
             files = [config._configuration_file, *config._include_files]
-            if config.auto_reload and any(
-                edit_time(fn) > last_modified_time for fn in files
-            ):
+            if config.auto_reload and any(edit_time(fn) > last_modified_time for fn in files):
                 console.log("Configuration file has been modified, reloading")
                 last_modified_time = max(edit_time(fn) for fn in files)
                 try:
@@ -2195,8 +2158,7 @@ def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
     # Remove '#' if present
-    if hex_color.startswith("#"):
-        hex_color = hex_color[1:]
+    hex_color = hex_color.removeprefix("#")
 
     # Convert hexadecimal to RGB
     r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
@@ -2228,7 +2190,7 @@ def _download_and_save_mdi(icon_mdi: str) -> Path:
         return filename_svg
     svg_content = _download(url)
     try:
-        etree.fromstring(svg_content)  # noqa: S320
+        etree.fromstring(svg_content)
     except etree.XMLSyntaxError:
         msg = (f"Invalid SVG: {url}, `svg_content` starts with: {svg_content[:100]!r}",)
         console.log(f"[b red]{msg}[/]")
@@ -2279,30 +2241,57 @@ def _init_icon(
     return Image.new("RGB", size, rgb_color)
 
 
-def _add_text(
+@ft.lru_cache(maxsize=1000)
+def _generate_text_image(
     *,
-    image: Image.Image,
     font_filename: str,
     text_size: int,
     text: str,
     text_color: str,
     text_offset: int = 0,
-) -> None:
+    size: tuple[int, int] = (ICON_PIXELS, ICON_PIXELS),
+) -> Image.Image:
+    """Render text onto a transparent image and return it for compositing."""
     if text_size == 0:
         console.log(f"Text size is 0, not drawing text: {text!r}")
-        return
-    draw = ImageDraw.Draw(image)
+        return Image.new("RGBA", size, (0, 0, 0, 0))
+
+    text_image = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(text_image)
     font = ImageFont.truetype(str(ASSETS_PATH / font_filename), text_size)
     draw.text(
-        (image.width / 2, image.height / 2 + text_offset),
+        (size[0] / 2, size[1] / 2 + text_offset),
         text=text,
         font=font,
         anchor="ms",
         fill=text_color,
         align="center",
     )
+    return text_image
 
 
+def _add_text_to_image(
+    image: Image.Image,
+    *,
+    font_filename: str,
+    text_size: int,
+    text: str,
+    text_color: str,
+    text_offset: int = 0,
+) -> Image.Image:
+    """Combine two images."""
+    text_image = _generate_text_image(
+        font_filename=font_filename,
+        text_size=text_size,
+        text=text,
+        text_color=text_color,
+        text_offset=text_offset,
+        size=image.size,
+    )
+    return Image.alpha_composite(image.convert("RGBA"), text_image).convert("RGB")
+
+
+@ft.lru_cache(maxsize=1)
 def _generate_failed_icon(
     size: tuple[int, int] = (ICON_PIXELS, ICON_PIXELS),
 ) -> Image.Image:
@@ -2312,14 +2301,13 @@ def _generate_failed_icon(
     font_filename = DEFAULT_FONT
     text_size = int(min(size) * 0.15)  # Adjust font size based on the icon size
     icon = Image.new("RGB", size, background_color)
-    _add_text(
+    return _add_text_to_image(
         image=icon,
         font_filename=font_filename,
         text_size=text_size,
         text="Rendering\nfailed",
         text_color=text_color,
     )
-    return icon
 
 
 def update_all_dials(
@@ -2466,9 +2454,7 @@ async def _sync_input_boolean(
     state: Literal["on", "off"],
 ) -> None:
     """Sync the input boolean state with the Stream Deck."""
-    if (state_entity_id is not None) and (
-        state_entity_id.split(".")[0] == "input_boolean"
-    ):
+    if (state_entity_id is not None) and (state_entity_id.split(".")[0] == "input_boolean"):
         await call_service(
             websocket,
             f"input_boolean.turn_{state}",
@@ -2570,17 +2556,13 @@ def _on_touchscreen_event_callback(
         else:
             # Short touch: Sets dial value to minimal value
             # Long touch: Sets dial to maximal value
-            lcd_icon_size = (
-                deck.touchscreen_image_format()["size"][0] / deck.dial_count()
-            )
+            lcd_icon_size = deck.touchscreen_image_format()["size"][0] / deck.dial_count()
             icon_pos = value["x"] // lcd_icon_size
             dials = config.dial_sorted(int(icon_pos))
             assert dials is not None
 
             selected_dial = (
-                dials[0]
-                if dials[0].dial_event_type == DialEventType.TURN.name
-                else dials[1]
+                dials[0] if dials[0].dial_event_type == DialEventType.TURN.name else dials[1]
             )
             assert selected_dial is not None
 
@@ -3154,7 +3136,7 @@ def _convert_svg_to_png(
     fill_color = _scale_hex_color(color, opacity)
 
     try:
-        svg_tree = etree.fromstring(svg_content)  # noqa: S320
+        svg_tree = etree.fromstring(svg_content)
         svg_tree.attrib["fill"] = fill_color
         svg_tree.attrib["style"] = f"background-color: {background_color}"
         modified_svg_content = etree.tostring(svg_tree)
@@ -3178,9 +3160,7 @@ def _convert_svg_to_png(
     )
 
     image = (
-        Image.open(io.BytesIO(png_content))
-        if png_content
-        else Image.new("RGBA", size, fill_color)
+        Image.open(io.BytesIO(png_content)) if png_content else Image.new("RGBA", size, fill_color)
     )
 
     im = ImageOps.expand(image, border=(margin, margin), fill="black")
@@ -3412,9 +3392,7 @@ def safe_load_yaml(
 
         def __init__(self, stream: Any) -> None:
             """Initialize IncludeLoader."""
-            self._root = (
-                Path(stream.name).parent if hasattr(stream, "name") else Path.cwd()
-            )
+            self._root = Path(stream.name).parent if hasattr(stream, "name") else Path.cwd()
             super().__init__(stream)
 
     def _include(loader: IncludeLoader, node: yaml.nodes.Node) -> Any:
@@ -3528,9 +3506,7 @@ def main() -> None:
     final_retry_attempts: float = args.connection_retry_attempts
 
     final_retry_delay = (
-        int(args.connection_retry_delay)
-        if args.connection_retry_delay is not None
-        else 0
+        int(args.connection_retry_delay) if args.connection_retry_delay is not None else 0
     )
 
     asyncio.run(

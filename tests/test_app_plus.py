@@ -415,9 +415,7 @@ async def test_return_to_home(  # noqa: PLR0915
     longer_than_return_to_home_after = return_to_home_after + 0.1
     assert longer_than_return_to_home_after > return_to_home_after
     assert longer_than_return_to_home_after > 0.0
-    longer_and_shorter_delta = (
-        longer_than_return_to_home_after - shorter_than_return_to_home_after
-    )
+    longer_and_shorter_delta = longer_than_return_to_home_after - shorter_than_return_to_home_after
     home = Page(
         name="home",
         buttons=[

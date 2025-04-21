@@ -53,16 +53,17 @@ sys.path.append(str(ROOT))
 TEST_STATE_FILENAME = ROOT / "tests" / "state.json"
 IS_CONNECTED_TO_HOMEASSISTANT = False
 BUTTONS_PER_PAGE = 15
+DEFAULT_CONFIG_ENCODING = "utf-8"
 
 
 def test_load_config() -> None:
     """Test Config.load."""
-    Config.load(DEFAULT_CONFIG)
+    Config.load(DEFAULT_CONFIG, yaml_encoding=DEFAULT_CONFIG_ENCODING)
 
 
 def test_reload_config() -> None:
     """Test Config.load."""
-    c = Config.load(DEFAULT_CONFIG)
+    c = Config.load(DEFAULT_CONFIG, yaml_encoding=DEFAULT_CONFIG_ENCODING)
     c.pages = []
     assert c.pages == []
     c.reload()
@@ -223,6 +224,17 @@ def test_example_config_browsing_pages(config: Config) -> None:
     assert config.button(0) == first_page.buttons[0]
 
 
+def test_example_close_pages(config: Config) -> None:
+    """Test example config close pages."""
+    assert isinstance(config, Config)
+    assert config._current_page_index == 0
+    second_page = config.next_page()
+    assert isinstance(second_page, Page)
+    assert config._current_page_index == 1
+    config.close_page()
+    assert config._current_page_index == 0
+
+
 @pytest.mark.skipif(
     not IS_CONNECTED_TO_HOMEASSISTANT,
     reason="Not connected to Home Assistant",
@@ -258,9 +270,7 @@ def test_buttons(buttons: list[Button], state: dict[str, dict[str, Any]]) -> Non
     page = Page(name="Home", buttons=buttons)
     config = Config(pages=[page])
     first_page = config.to_page(0)
-    rendered_buttons = [
-        button.rendered_template_button(state) for button in first_page.buttons
-    ]
+    rendered_buttons = [button.rendered_template_button(state) for button in first_page.buttons]
 
     b = rendered_buttons[0]  # LIGHT
     assert b.domain == "light"
@@ -425,7 +435,7 @@ def test_light_page() -> None:
     """Test light page."""
     page = _light_page(
         entity_id="light.bedroom",
-        n_colors=10,
+        n_colors=9,
         colormap="hsv",
         colors=None,
         color_temp_kelvin=None,
@@ -438,7 +448,7 @@ def test_light_page() -> None:
 
     page = _light_page(
         entity_id="light.bedroom",
-        n_colors=10,
+        n_colors=9,
         colormap=None,
         colors=None,
         color_temp_kelvin=None,
@@ -464,7 +474,7 @@ def test_light_page() -> None:
 
     page = _light_page(
         entity_id="light.bedroom",
-        n_colors=10,
+        n_colors=9,
         colormap=None,
         colors=hex_colors,
         color_temp_kelvin=None,
@@ -1193,9 +1203,7 @@ async def test_long_press(
     await press_and_release(0, short_press_time)
     assert config.current_page() == home
     await press_and_release(1, long_press_time)
-    assert (
-        config.current_page() == home
-    )  # shouldn't do anything as no long action is configured
+    assert config.current_page() == home  # shouldn't do anything as no long action is configured
 
 
 async def test_anonymous_page(
