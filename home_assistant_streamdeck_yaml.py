@@ -573,6 +573,10 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         )
         return button, image
 
+    def has_long_press_configured(self) -> bool:
+        """Return True if the dial has a long press configured."""
+        return self.long_press is not None
+
 
 class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
     """Dial configuration."""
@@ -2312,6 +2316,23 @@ def _on_press_callback(
 
         button = config.button(key)
         assert button is not None
+        cb = ft.partial(
+            _try_handle_key_press,
+            websocket=websocket,
+            complete_state=complete_state,
+            config=config,
+            button=button,
+            deck=deck,
+            is_long_press=False,
+        )
+        console.log(f"Press start times: {press_start_times}")  # debug only
+
+        def schedule_release_for_long_press() -> None:
+            asyncio.get_event_loop().call_later(
+                config.long_press_duration,
+                lambda: asyncio.create_task(cb(is_long_press=True)),
+            )
+
         if key_pressed:
             press_start_times[key] = time.time()
             console.log(
@@ -2324,10 +2345,16 @@ def _on_press_callback(
                 complete_state=complete_state,
                 key_pressed=True,
             )
+            if button.has_long_press_configured() and config.long_press_duration > 0:
+                schedule_release_for_long_press()
             return
 
         # Key released
-        press_duration = time.time() - press_start_times.pop(key)
+        press_start_time = press_start_times.pop(key)
+        if press_start_time is None:
+            console.log(f"Key {key} released, but no press start time found")  # debug only
+            return  # Key release was already handled, possibly by a long press action.
+        press_duration = time.time() - press_start_time
         console.log(f"Key {key} released after {press_duration:.2f}s")
         update_key_image(
             deck,
@@ -2335,15 +2362,6 @@ def _on_press_callback(
             config=config,
             complete_state=complete_state,
             key_pressed=False,
-        )
-        cb = ft.partial(
-            _try_handle_key_press,
-            websocket=websocket,
-            complete_state=complete_state,
-            config=config,
-            button=button,
-            deck=deck,
-            is_long_press=False,
         )
         if press_duration < config.long_press_duration:
             console.log(f"Handling short press for key {key}")
