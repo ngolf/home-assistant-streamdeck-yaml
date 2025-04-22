@@ -1142,10 +1142,10 @@ async def test_long_press(
     state: dict[str, dict[str, Any]],
 ) -> None:
     """Test long press."""
-    long_press_threshold = 0.4
-    short_press_time = 0.01
+    long_press_threshold = 0.5
+    short_press_time = 0.0
     assert short_press_time < long_press_threshold
-    long_press_time = long_press_threshold + 0.2
+    long_press_time = long_press_threshold + 0.1
     assert long_press_time > long_press_threshold
 
     home = Page(
