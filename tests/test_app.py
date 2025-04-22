@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import functools as ft
 import json
 import sys
 import textwrap
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 import websockets
@@ -45,6 +46,7 @@ from home_assistant_streamdeck_yaml import (
     get_states,
     run,
     setup_ws,
+    update_all_key_images,
     update_key_image,
 )
 
@@ -1211,12 +1213,21 @@ async def test_long_press(
     config = Config(pages=[home, short, long], long_press_duration=long_press_threshold)
     assert config._current_page_index == 0
     assert config.current_page() == home
-    press = _on_press_callback(inactivity_state, websocket_mock, state, config)
+    press_event = ft.partial(
+        _on_press_callback(inactivity_state, websocket_mock, state, config),
+        mock_deck,
+    )
+
+    async def press(key: int) -> None:
+        await press_event(key, True)  # noqa: FBT003
+
+    async def release(key: int) -> None:
+        await press_event(key, False)  # noqa: FBT003
 
     async def press_and_release(key: int, seconds: float) -> None:
-        await press(mock_deck, key, True)  # noqa: FBT003
+        await press(key)
         await asyncio.sleep(seconds)
-        await press(mock_deck, key, False)  # noqa: FBT003
+        await release(key)
 
     await press_and_release(0, short_press_time)
     assert config.current_page() == short
@@ -1227,7 +1238,33 @@ async def test_long_press(
     await press_and_release(0, short_press_time)
     assert config.current_page() == home
     await press_and_release(1, long_press_time)
-    assert config.current_page() == home  # shouldn't do anything as no long action is configured
+    # uses `short` action because no long action is configured
+    assert config.current_page() == short
+
+    # Test that long press action happens when long press duration is reached without requiring a release
+    config.to_page(home.name)
+    assert config.current_page() == home
+    await press(0)
+    await asyncio.sleep(long_press_time)
+    assert config.current_page() == long
+
+    # should not register any action on release since long press
+    # duration was reached and long press action was already triggered
+    await release(0)
+    assert config.current_page() == long
+
+    # Test that long press action happens when long press duration is reached without requiring a release
+    # From a detached page.
+    config.load_page_as_detached(home)
+    assert config.current_page() == home
+    await press(0)
+    await asyncio.sleep(long_press_time)
+    assert config.current_page() == long
+
+    # should not register any action on release since long press
+    # duration was reached and long press action was already triggered
+    await release(0)
+    assert config.current_page() == long
 
 
 async def test_anonymous_page(
@@ -1294,11 +1331,67 @@ async def test_anonymous_page(
     assert config.current_page() == anon
     config.close_detached_page()
     assert config.current_page() == home
+
     # Back to anon page to test that the close button works properly
     assert config.to_page("anon") == anon
-    await press_and_release(2)
+    await press_and_release(2)  # close page button
     assert config._detached_page is None
     assert config.current_page() == home
+
+    # Test that to_page closes a detached page
+    config.load_page_as_detached(anon)
+    assert config.current_page() == anon
+    config.to_page(home.name)
+    assert config.current_page() == home
+    assert config._detached_page is None
+
+
+def test_page_switch_clears_unused_keys(state: dict[str, dict[str, Any]]) -> None:
+    """Test that switching pages clears unused keys."""
+    # Setup pages: page1 has 2 buttons, page2 has only 1
+    page1 = Page(name="Page1", buttons=[Button(text="Btn1"), Button(text="Btn2")])
+    page2 = Page(name="Page2", buttons=[Button(text="Btn1 Only")])
+    config = Config(pages=[page1, page2])
+
+    # Patch dependencies: PILHelper for image conversion and DeviceManager to avoid needing a real deck
+    with (
+        patch(
+            "home_assistant_streamdeck_yaml.PILHelper.to_native_format",
+            return_value="mock_image_data",
+        ),
+        patch("home_assistant_streamdeck_yaml.DeviceManager") as mock_device_manager,
+    ):
+        # Configure the mock StreamDeck instance
+        mock_deck_instance = mock_device_manager().enumerate()[0]
+        mock_deck_instance.key_count.return_value = 2
+        mock_deck_instance.key_image_format.return_value = {"size": (72, 72)}
+        # Use MagicMock to easily track calls to set_key_image
+        mock_deck_instance.set_key_image = MagicMock()
+
+        # Start on the first page (page1)
+        assert config._current_page_index == 0
+
+        # Simulate switching to the second page (page2) which has fewer buttons
+        config.to_page(1)
+        assert config._current_page_index == 1
+
+        # Trigger the image update process for the current page
+        # This function should now handle clearing keys not defined on page2
+        update_all_key_images(mock_deck_instance, config, state)
+
+        # Verify that set_key_image was called correctly:
+        # - Key 0 should receive the image for the button on page2.
+        # - Key 1, which had a button on page1 but not page2, should be cleared (sent None).
+        expected_calls = [
+            call(0, "mock_image_data"),
+            call(1, None),
+        ]
+        mock_deck_instance.set_key_image.assert_has_calls(
+            expected_calls,
+            any_order=False,
+        )
+        # Ensure exactly these two calls were made for the 2-key mock deck
+        assert mock_deck_instance.set_key_image.call_count == 2  # noqa: PLR2004
 
 
 async def test_retry_logic_called_correct_number_of_times(mock_deck: Mock) -> None:
@@ -1358,6 +1451,5 @@ async def test_run_exits_immediately_on_zero_retries(mock_deck: Mock) -> None:
             retry_attempts=0,
             retry_delay=0,
         )
-
         # If setup_ws is called once, it means the retry logic did not retry
         assert mock_get_deck.called
