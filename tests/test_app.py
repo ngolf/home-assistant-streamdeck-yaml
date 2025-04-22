@@ -1187,6 +1187,19 @@ async def test_long_press(
     await release(0)
     assert config.current_page() == long
 
+    # Test that long press action happens when long press duration is reached without requiring a release
+    # From a detached page.
+    config.load_page_as_detached(home)
+    assert config.current_page() == home
+    await press(0)
+    await asyncio.sleep(long_press_time)
+    assert config.current_page() == long
+
+    # should not register any action on release since long press
+    # duration was reached and long press action was already triggered
+    await release(0)
+    assert config.current_page() == long
+
 
 async def test_anonymous_page(
     mock_deck: Mock,
