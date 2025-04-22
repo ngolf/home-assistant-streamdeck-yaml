@@ -12,6 +12,7 @@ import json
 import locale
 import math
 import re
+import ssl
 import time
 import warnings
 from contextlib import asynccontextmanager
@@ -427,7 +428,7 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         if icon_convert_to_grayscale:
             image = _convert_to_grayscale(image)
 
-        _add_text(
+        return _add_text_to_image(
             image=image,
             font_filename=font_filename,
             text_size=self.text_size,
@@ -435,7 +436,6 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             text_color=text_color if not key_pressed else "green",
             text_offset=self.text_offset,
         )
-        return image
 
     @staticmethod
     def _validate_special_type_data(special_type: str, v: Any) -> Any:  # noqa: PLR0912
@@ -725,7 +725,7 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             if icon_convert_to_grayscale:
                 image = _convert_to_grayscale(image)
 
-            _add_text(
+            return _add_text_to_image(
                 image=image,
                 font_filename=font_filename,
                 text_size=self.text_size,
@@ -733,7 +733,6 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                 text_color=text_color,
                 text_offset=self.text_offset,
             )
-            return image  # noqa: TRY300
 
         except ValueError as e:
             console.log(e)
@@ -1040,12 +1039,11 @@ class Config(BaseModel):
 
     def to_page(self, page: int | str) -> Page:
         """Go to a page based on the page name or index."""
-        console.log(f"Switching to page {page}")  # debug only
+        self.close_detached_page()
         if isinstance(page, int):
             self._parent_page_index = self._current_page_index
             self._current_page_index = page
             return self.current_page()
-
         for i, p in enumerate(self.pages):
             if p.name == page:
                 self._current_page_index = i
@@ -1394,13 +1392,16 @@ async def setup_ws(
     host: str,
     token: str,
     protocol: Literal["wss", "ws"],
+    *,
+    allow_weaker_ssl: bool = False,
 ) -> websockets.WebSocketClientProtocol:
     """Set up the connection to Home Assistant."""
     uri = f"{protocol}://{host}/api/websocket"
+    ssl_context = ssl.create_default_context()
     while True:
         try:
             # limit size to 10 MiB
-            async with websockets.connect(uri, max_size=10485760) as websocket:
+            async with websockets.connect(uri, ssl=ssl_context, max_size=10485760) as websocket:
                 # Send an authentication message to Home Assistant
                 auth_payload = {"type": "auth", "access_token": token}
                 await websocket.send(json.dumps(auth_payload))
@@ -1414,6 +1415,9 @@ async def setup_ws(
             # Connection was reset, retrying in 3 seconds
             console.print_exception(show_locals=True)
             console.log("Connection was reset, retrying in 3 seconds")
+            if allow_weaker_ssl:
+                ssl_context.set_ciphers("DEFAULT@SECLEVEL=1")
+                console.log("Using weaker SSL settings")
             await asyncio.sleep(5)
 
 
@@ -1846,30 +1850,57 @@ def _init_icon(
     return Image.new("RGB", size, rgb_color)
 
 
-def _add_text(
+@ft.lru_cache(maxsize=1000)
+def _generate_text_image(
     *,
-    image: Image.Image,
     font_filename: str,
     text_size: int,
     text: str,
     text_color: str,
     text_offset: int = 0,
-) -> None:
+    size: tuple[int, int] = (ICON_PIXELS, ICON_PIXELS),
+) -> Image.Image:
+    """Render text onto a transparent image and return it for compositing."""
     if text_size == 0:
         console.log(f"Text size is 0, not drawing text: {text!r}")
-        return
-    draw = ImageDraw.Draw(image)
+        return Image.new("RGBA", size, (0, 0, 0, 0))
+
+    text_image = Image.new("RGBA", size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(text_image)
     font = ImageFont.truetype(str(ASSETS_PATH / font_filename), text_size)
     draw.text(
-        (image.width / 2, image.height / 2 + text_offset),
+        (size[0] / 2, size[1] / 2 + text_offset),
         text=text,
         font=font,
         anchor="ms",
         fill=text_color,
         align="center",
     )
+    return text_image
 
 
+def _add_text_to_image(
+    image: Image.Image,
+    *,
+    font_filename: str,
+    text_size: int,
+    text: str,
+    text_color: str,
+    text_offset: int = 0,
+) -> Image.Image:
+    """Combine two images."""
+    text_image = _generate_text_image(
+        font_filename=font_filename,
+        text_size=text_size,
+        text=text,
+        text_color=text_color,
+        text_offset=text_offset,
+        size=image.size,
+    )
+    return Image.alpha_composite(image.convert("RGBA"), text_image).convert("RGB")
+
+
+@ft.lru_cache(maxsize=1)
 def _generate_failed_icon(
     size: tuple[int, int] = (ICON_PIXELS, ICON_PIXELS),
 ) -> Image.Image:
@@ -1879,14 +1910,13 @@ def _generate_failed_icon(
     font_filename = DEFAULT_FONT
     text_size = int(min(size) * 0.15)  # Adjust font size based on the icon size
     icon = Image.new("RGB", size, background_color)
-    _add_text(
+    return _add_text_to_image(
         image=icon,
         font_filename=font_filename,
         text_size=text_size,
         text="Rendering\nfailed",
         text_color=text_color,
     )
-    return icon
 
 
 def update_all_dials(
@@ -2643,10 +2673,12 @@ async def run(
     token: str,
     protocol: Literal["wss", "ws"],
     config: Config,
+    *,
+    allow_weaker_ssl: bool = False,
 ) -> None:
     """Main entry point for the Stream Deck integration."""
     deck = get_deck()
-    async with setup_ws(host, token, protocol) as websocket:
+    async with setup_ws(host, token, protocol, allow_weaker_ssl=allow_weaker_ssl) as websocket:
         try:
             complete_state = await get_states(websocket)
 
@@ -2787,16 +2819,22 @@ def main() -> None:
         default=yaml_encoding,
         help=f"Specify encoding for YAML files (default is system encoding or from environment variable YAML_ENCODING (default: {yaml_encoding})",
     )
-
     parser.add_argument(
         "--protocol",
         default=os.environ.get("WEBSOCKET_PROTOCOL", "wss"),
         choices=["wss", "ws"],
     )
+    parser.add_argument(
+        "--allow-weaker-ssl",
+        action="store_true",
+        help="Allow less secure SSL (security level 1) for compatibility with slower hardware (e.g., RPi Zero).",
+    )
     args = parser.parse_args()
+    if os.getenv("ALLOW_WEAKER_SSL", "").lower().startswith(("y", "t", "1")):
+        args.allow_weaker_ssl = True
     console.log(f"Using version {__version__} of the Home Assistant Stream Deck.")
     console.log(
-        f"Starting Stream Deck integration with {args.host=}, {args.config=}, {args.protocol=}",
+        f"Starting Stream Deck integration with {args.host=}, {args.config=}, {args.protocol=}, {args.allow_weaker_ssl=}",
     )
     config = Config.load(args.config, yaml_encoding=args.yaml_encoding)
     asyncio.run(
@@ -2805,6 +2843,7 @@ def main() -> None:
             token=args.token,
             protocol=args.protocol,
             config=config,
+            allow_weaker_ssl=args.allow_weaker_ssl,
         ),
     )
 
