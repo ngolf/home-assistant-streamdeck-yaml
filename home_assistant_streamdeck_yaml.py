@@ -1062,12 +1062,10 @@ class Config(BaseModel):
 
     def close_detached_page(self) -> None:
         """Close the detached page."""
-        console.log(f"Closing detached page {self.current_page().name}")  # debug only
         self._detached_page = None
 
     def close_page(self) -> Page:
         """Close the current page."""
-        console.log(f"Closing page {self.current_page().name}")  # debug only
         self._detached_page = None
         self._current_page_index = self._parent_page_index
         return self.current_page()
@@ -2348,20 +2346,19 @@ def _on_press_callback(
         called_by_long_press: bool = False,
     ) -> None:
         console.log(
-            f"Key {key} {'pressed' if key_pressed else 'released'}, called_by_long_press={called_by_long_press}",
+            f"Key {key} {'pressed' if key_pressed else 'released'}"
+            + (f"called_by_long_press={called_by_long_press}" if not key_pressed else ""),
         )
 
         async def handle_release(key: int, *, is_long_press: bool = False) -> None:
             try:
                 button = buttons_pressed.pop(key)
             except KeyError:
-                console.log(
-                    f"Key {key} released, but no starting button press found. Called by long_press={called_by_long_press}",
-                )
+                # Button was already released, will happen when:
+                # This is a physical release, and the long-press-triggered action already happened.
+                # This was called from the long press action, but the button was already released and short press action executed.
+                # In either case, nothing needs to be done.
                 return
-            console.log(
-                f"Handling release for button {button} on page {config.current_page().name}",
-            )
             cb = ft.partial(
                 _try_handle_key_press,
                 websocket=websocket,
@@ -2402,9 +2399,6 @@ def _on_press_callback(
             button = config.button(key)
             assert button is not None
             buttons_pressed[key] = button
-            console.log(
-                f"Key {key} pressed, starting long press monitor with threshold {config.long_press_duration}s",
-            )
             update_key_image(
                 deck,
                 key=key,
@@ -2436,9 +2430,6 @@ async def _try_handle_key_press(
     is_long_press: bool,
 ) -> None:
     try:
-        console.log(
-            f"Handling key press for {button} with long press={is_long_press}. Current page is {config.current_page().name}",
-        )  # debug only
         await _handle_key_press(
             websocket,
             complete_state,
@@ -2447,7 +2438,6 @@ async def _try_handle_key_press(
             deck,
             is_long_press=is_long_press,
         )
-        console.log(f"Page after key press: {config.current_page().name}")  # debug only
     except Exception as e:
         console.print_exception(show_locals=True)
         which = "long" if is_long_press else "short"
