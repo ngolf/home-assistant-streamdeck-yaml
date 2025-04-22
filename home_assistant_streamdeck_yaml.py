@@ -2362,13 +2362,8 @@ def _on_press_callback(
         deck: StreamDeck,
         key: int,
         key_pressed: bool,  # noqa: FBT001
-        *,
-        called_by_long_press: bool = False,
     ) -> None:
-        console.log(
-            f"Key {key} {'pressed' if key_pressed else 'released'}"
-            + (f"called_by_long_press={called_by_long_press}" if not key_pressed else ""),
-        )
+        console.log(f"Key {key} {'pressed' if key_pressed else 'released'}")
 
         async def handle_release(key: int, *, is_long_press: bool = False) -> None:
             try:
