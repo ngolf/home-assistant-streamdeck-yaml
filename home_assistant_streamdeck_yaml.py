@@ -2326,7 +2326,7 @@ def _on_press_callback(
                 button = buttons_pressed.pop(key)
             except KeyError:
                 console.log(
-                    f"Key {key} released, but no press start time or button found. Called by long_press={called_by_long_press}",
+                    f"Key {key} released, but no starting button press found. Called by long_press={called_by_long_press}",
                 )
                 return
             console.log(
