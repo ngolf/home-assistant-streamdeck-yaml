@@ -2784,9 +2784,11 @@ async def _handle_key_press(  # noqa: PLR0912, PLR0915
         page = _light_page(
             entity_id=entity_id,
             n_colors=9,
+            deck_key_count=deck.key_count(),
             colormap=special_type_data.get("colormap", None),
             colors=special_type_data.get("colors", None),
             color_temp_kelvin=special_type_data.get("color_temp_kelvin", None),
+            brightnesses=special_type_data.get("brightnesses", None),
         )
         config.load_page_as_detached(page)
         update_all()
