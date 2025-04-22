@@ -1118,10 +1118,10 @@ async def test_long_press(
     state: dict[str, dict[str, Any]],
 ) -> None:
     """Test long press."""
-    long_press_threshold = 0.5
-    short_press_time = 0.0
+    long_press_threshold = 0.4
+    short_press_time = 0.01
     assert short_press_time < long_press_threshold
-    long_press_time = long_press_threshold + 0.1
+    long_press_time = long_press_threshold + 0.2
     assert long_press_time > long_press_threshold
 
     home = Page(
@@ -1176,13 +1176,11 @@ async def test_long_press(
     assert config.current_page() == short
 
     # Test that long press action happens when long press duration is reached without requiring a release
-    config.load_page_as_detached(home)
+    config.to_page(home.name)
     assert config.current_page() == home
     await press(0)
     await asyncio.sleep(long_press_time)
-    assert (
-        config.current_page() == long
-    )  # This currently breaks to illustrate the issue of long press action not being triggered when reaching the duration and not having released the key.
+    assert config.current_page() == long
 
     # should not register any action on release since long press
     # duration was reached and long press action was already triggered

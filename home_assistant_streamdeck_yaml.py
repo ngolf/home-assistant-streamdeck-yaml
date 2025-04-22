@@ -1040,6 +1040,7 @@ class Config(BaseModel):
 
     def to_page(self, page: int | str) -> Page:
         """Go to a page based on the page name or index."""
+        console.log(f"Switching to page {page}")  # debug only
         if isinstance(page, int):
             self._parent_page_index = self._current_page_index
             self._current_page_index = page
@@ -1063,10 +1064,12 @@ class Config(BaseModel):
 
     def close_detached_page(self) -> None:
         """Close the detached page."""
+        console.log(f"Closing detached page {self.current_page().name}")  # debug only
         self._detached_page = None
 
     def close_page(self) -> Page:
         """Close the current page."""
+        console.log(f"Closing page {self.current_page().name}")  # debug only
         self._detached_page = None
         self._current_page_index = self._parent_page_index
         return self.current_page()
@@ -2305,36 +2308,70 @@ def _on_press_callback(
     complete_state: StateDict,
     config: Config,
 ) -> Callable[[StreamDeck, int, bool], Coroutine[StreamDeck, int, None]]:
-    press_start_times: dict[int, float] = {}
+    buttons_pressed: dict[int, Button] = {}  # Store button at press time
 
     async def key_change_callback(
         deck: StreamDeck,
         key: int,
         key_pressed: bool,  # noqa: FBT001
+        *,
+        called_by_long_press: bool = False,
     ) -> None:
-        console.log(f"Key {key} {'pressed' if key_pressed else 'released'}")
-
-        button = config.button(key)
-        assert button is not None
-        cb = ft.partial(
-            _try_handle_key_press,
-            websocket=websocket,
-            complete_state=complete_state,
-            config=config,
-            button=button,
-            deck=deck,
-            is_long_press=False,
+        console.log(
+            f"Key {key} {'pressed' if key_pressed else 'released'}, called_by_long_press={called_by_long_press}",
         )
-        console.log(f"Press start times: {press_start_times}")  # debug only
+
+        async def handle_release(key: int, *, is_long_press: bool = False) -> None:
+            try:
+                button = buttons_pressed.pop(key)
+            except KeyError:
+                console.log(
+                    f"Key {key} released, but no press start time or button found. Called by long_press={called_by_long_press}",
+                )
+                return
+            console.log(
+                f"Handling release for button {button} on page {config.current_page().name}",
+            )
+            cb = ft.partial(
+                _try_handle_key_press,
+                websocket=websocket,
+                complete_state=complete_state,
+                config=config,
+                button=button,
+                deck=deck,
+                is_long_press=is_long_press,
+            )
+            update_key_image(
+                deck,
+                key=key,
+                config=config,
+                complete_state=complete_state,
+                key_pressed=False,
+            )
+            if is_long_press:
+                console.log(f"Executing long press action for key {key}")
+                await cb()
+            else:
+                console.log(f"Executing short press action for key {key}")
+                if button.maybe_start_or_cancel_timer(cb):
+                    console.log(f"Timer started for key {key}, delaying short press")
+                else:
+                    await cb()
 
         def schedule_release_for_long_press() -> None:
+            console.log(f"Scheduling long press release for key {key}")
             asyncio.get_event_loop().call_later(
                 config.long_press_duration,
-                lambda: asyncio.create_task(cb(is_long_press=True)),
+                lambda: asyncio.create_task(
+                    handle_release(key, is_long_press=True),
+                ),
             )
 
-        if key_pressed:
-            press_start_times[key] = time.time()
+        if key_pressed and config.button(key):
+            # Key pressed
+            button = config.button(key)
+            assert button is not None
+            buttons_pressed[key] = button
             console.log(
                 f"Key {key} pressed, starting long press monitor with threshold {config.long_press_duration}s",
             )
@@ -2345,33 +2382,16 @@ def _on_press_callback(
                 complete_state=complete_state,
                 key_pressed=True,
             )
-            if button.has_long_press_configured() and config.long_press_duration > 0:
+            if (
+                button.has_long_press_configured()
+                and config.long_press_duration > 0
+                and not button.maybe_start_or_cancel_timer()
+            ):
                 schedule_release_for_long_press()
             return
 
-        # Key released
-        press_start_time = press_start_times.pop(key)
-        if press_start_time is None:
-            console.log(f"Key {key} released, but no press start time found")  # debug only
-            return  # Key release was already handled, possibly by a long press action.
-        press_duration = time.time() - press_start_time
-        console.log(f"Key {key} released after {press_duration:.2f}s")
-        update_key_image(
-            deck,
-            key=key,
-            config=config,
-            complete_state=complete_state,
-            key_pressed=False,
-        )
-        if press_duration < config.long_press_duration:
-            console.log(f"Handling short press for key {key}")
-            if button.maybe_start_or_cancel_timer(cb):
-                console.log(f"Timer started for key {key}, delaying short press")
-            else:
-                await cb(is_long_press=False)
-        else:
-            console.log(f"Handling long press for key {key}")
-            await cb(is_long_press=True)
+        # Key released (physical release only)
+        await handle_release(key)
 
     return key_change_callback
 
@@ -2386,6 +2406,9 @@ async def _try_handle_key_press(
     is_long_press: bool,
 ) -> None:
     try:
+        console.log(
+            f"Handling key press for {button} with long press={is_long_press}. Current page is {config.current_page().name}",
+        )  # debug only
         await _handle_key_press(
             websocket,
             complete_state,
@@ -2394,6 +2417,7 @@ async def _try_handle_key_press(
             deck,
             is_long_press=is_long_press,
         )
+        console.log(f"Page after key press: {config.current_page().name}")  # debug only
     except Exception as e:
         console.print_exception(show_locals=True)
         which = "long" if is_long_press else "short"
