@@ -636,6 +636,22 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                         size=size,
                         radius=40,
                     )
+                elif which == "light-temperature-bar":
+                    set_temperature = _dial_value(self)
+                    current_temperature = (
+                        complete_state.get(self.entity_id, {})
+                        .get("attributes", {})
+                        .get("color_temp_kelvin")
+                    )
+                    ## populate min and max with either what's in the config, or in the state of the entity, or default
+                    assert isinstance(
+                        current_temperature,
+                        (int, float),
+                    ), f"Invalid light temperature value: {id_}"
+                    image = _draw_light_temperature_bar(
+                        set_temperature=set_temperature,
+                        current_temperature=current_temperature,
+                    )
 
             icon_convert_to_grayscale = False
             text = dial.text
@@ -1068,6 +1084,119 @@ class AsyncDelayedCallback:
             elapsed_time = time.time() - self.start_time
             return max(0, self.delay - elapsed_time)
         return 0
+
+
+@ft.lru_cache(maxsize=20)
+def _draw_light_temperature_bar(
+    *,
+    min_temperature: float = 2202,
+    max_temperature: float = 6535,
+    current_temperature: float,
+    set_temperature: float,
+    size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y),
+) -> Image.Image:
+    """Draw a light temperature bar with a gradient representing the visual appearance of white light.
+
+    Args:
+        min_temperature (float): Minimum temperature in Kelvin (left side, warmer). Defaults to 2202.
+        max_temperature (float): Maximum temperature in Kelvin (right side, cooler). Defaults to 6535.
+        current_temperature (float): Current light temperature in Kelvin (red bar).
+        set_temperature (float): Desired light temperature in Kelvin (green bar).
+        size (tuple[float, float]): Figure size as (width, height) in pixels. Defaults to (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y).
+
+    Returns:
+        PIL.Image.Image: RGB image of the temperature bar.
+
+    Raises:
+        ImportError: If required libraries cannot be imported.
+        Exception: For other unexpected errors during image creation.
+
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")  # Use non-interactive backend to avoid Tk issues
+        from io import BytesIO
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib.colors import LinearSegmentedColormap
+        from PIL import Image
+    except ImportError as e:
+        raise ImportError(f"Failed to import required libraries: {e!s}")
+
+    try:
+        # Debug message with parameters
+        params = {
+            "min_temperature": min_temperature,
+            "max_temperature": max_temperature,
+            "current_temperature": current_temperature,
+            "set_temperature": set_temperature,
+            "size": size,
+        }
+        console.log(f"_draw_light_temperature_bar called with: {params}")
+
+        # Calculate DPI to ensure exact pixel size
+        dpi = 100
+        fig_width = size[0] / dpi  # Width in inches
+        fig_height = size[1] / dpi  # Height in inches
+
+        # Create figure with exact dimensions
+        plt.figure(figsize=(fig_width, fig_height), dpi=dpi)
+        ax = plt.gca()
+
+        # Create custom colormap based on min_temperature and max_temperature
+        # Colors: warm yellowish (#FFDBAC), neutral white (#FFFFFF), cool bluish-white (#D4E8FF)
+        temp_range = max_temperature - min_temperature
+        neutral_pos = (
+            (4000 - min_temperature) / temp_range if temp_range != 0 else 0.5
+        )  # Neutral at ~4000K
+        neutral_pos = max(0, min(1, neutral_pos))  # Ensure position is between 0 and 1
+
+        # Define colors and their positions in the gradient
+        cdict = {
+            "red": [
+                (0.0, 1.0, 1.0),  # Warm (min_temperature): #FFDBAC
+                (neutral_pos, 1.0, 1.0),  # Neutral (~4000K): #FFFFFF
+                (1.0, 0.831, 0.831),
+            ],  # Cool (max_temperature): #D4E8FF
+            "green": [(0.0, 0.859, 0.859), (neutral_pos, 1.0, 1.0), (1.0, 0.910, 0.910)],
+            "blue": [(0.0, 0.675, 0.675), (neutral_pos, 1.0, 1.0), (1.0, 1.0, 1.0)],
+        }
+        cmap = LinearSegmentedColormap("temp_gradient", cdict)
+
+        # Create gradient bar
+        gradient = np.linspace(0, 1, 256).reshape(1, -1)
+        ax.imshow(
+            gradient, aspect="auto", cmap=cmap, extent=[min_temperature, max_temperature, 0, 1]
+        )
+
+        # Add red bar for current temperature
+        ax.axvline(x=current_temperature, color="red", linewidth=3)
+
+        # Add green bar for set temperature
+        ax.axvline(x=set_temperature, color="green", linewidth=3)
+
+        # Remove all axes, text, and legend
+        ax.set_axis_off()
+
+        # Remove all padding and margins
+        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+
+        # Save to BytesIO
+        buf = BytesIO()
+        plt.savefig(buf, format="png", pad_inches=0)
+        plt.close()
+
+        # Convert to PIL Image
+        buf.seek(0)
+        image = Image.open(buf).convert("RGB")
+        buf.close()
+
+        return image
+
+    except Exception as e:
+        raise Exception(f"Error creating temperature bar image: {e!s}")
 
 
 def _draw_percentage_ring(
@@ -1602,6 +1731,7 @@ def _round(num: float, digits: int) -> int | float:
     return round(num, digits)
 
 
+# Move to Dial class
 def _dial_value(dial: Dial | None) -> float:
     if dial is None:
         return 0
@@ -1612,6 +1742,7 @@ def _dial_value(dial: Dial | None) -> float:
         return 0
 
 
+# Move to Dial class
 def _dial_attr(
     attr: str,
     dial: Dial | None,
