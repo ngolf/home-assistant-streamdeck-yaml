@@ -616,11 +616,8 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         try:
             image = None
             dial = self.rendered_template_dial(complete_state)
-            attributes = (
-                complete_state.get(self.entity_id, {})
-                .get("attributes", {})
-            )
-            
+            attributes = complete_state.get(self.entity_id, {}).get("attributes", {})
+
             def get_attr(key):
                 return attributes.get(key)
 
@@ -654,7 +651,7 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                     image = _draw_light_brightness_bar(
                         set_brightness=_dial_value(self),
                         current_brightness=get_attr("brightness"),
-                        )
+                    )
 
             icon_convert_to_grayscale = False
             text = dial.text
@@ -1087,53 +1084,10 @@ class AsyncDelayedCallback:
             elapsed_time = time.time() - self.start_time
             return max(0, self.delay - elapsed_time)
         return 0
-    
-
 
 
 @ft.lru_cache(maxsize=20)
-def _generate_gradient_image(min_value: float, max_value: float, width: int, height: int, colors: tuple) -> 'Image.Image':
-    """Generate and cache a gradient image based on a value range and color stops."""
-    gradient = Image.new('RGB', (width, height))
-    # Use colors directly as a tuple of RGB tuples
-    color_list = colors  # Colors is ((r,g,b), ...)
-
-    # Interpolate colors for the gradient
-    pixels = gradient.load()
-    for x in range(width):
-        if len(color_list) == 3:
-            # Three colors: interpolate with neutral point at 50%
-            neutral_pos = 0.5
-            neutral_x = int(width * neutral_pos)
-            if x < neutral_x:
-                # Interpolate between first and neutral
-                t = x / neutral_x if neutral_x != 0 else 0
-                start_color = color_list[0]
-                end_color = color_list[1]
-            else:
-                # Interpolate between neutral and last
-                t = (x - neutral_x) / (width - neutral_x) if (width - neutral_x) != 0 else 0
-                start_color = color_list[1]
-                end_color = color_list[2]
-        else:
-            # Two colors: interpolate directly from first to second
-            t = x / (width - 1) if width > 1 else 0
-            start_color = color_list[0]
-            end_color = color_list[1]
-
-        # Linear interpolation of RGB values
-        r = int(start_color[0] + t * (end_color[0] - start_color[0]))
-        g = int(start_color[1] + t * (end_color[1] - start_color[1]))
-        b = int(start_color[2] + t * (end_color[2] - start_color[2]))
-
-        # Fill the column with the interpolated color
-        for y in range(height):
-            pixels[x, y] = (r, g, b)
-
-    return gradient
-
-@ft.lru_cache(maxsize=20)
-def _generate_gradient_image(min_value: float, max_value: float, width: int, height: int, colors: tuple) -> 'Image.Image':
+def _generate_gradient_image(min_value: float, max_value: float, width: int, height: int, colors: tuple) -> Image.Image:
     """Generate and cache a gradient image based on a value range and equally spaced color stops."""
     gradient = Image.new('RGBA', (width, height))
     # Use colors directly as a tuple of RGB tuples
@@ -1179,7 +1133,7 @@ def _generate_bar_image(
     height: int,
     current_color_bar: str = 'red',
     set_color_bar: str = 'green'
-) -> 'Image.Image':
+) -> Image.Image:
     """Generate an RGBA image with bars for current and set values on a transparent background."""
     # Create a fully transparent RGBA image
     bar_image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
@@ -1214,16 +1168,17 @@ def _generate_bar_image(
 
     return bar_image
 
+@ft.lru_cache(maxsize=20)
 def _draw_bar_image(
     min_value: float,
     max_value: float,
     current_value: float | None,
     set_value: float | None,
-    colors: List[Tuple[int, int, int]],
+    colors: Tuple[Tuple[int, int, int], ...],
     current_color_bar: str = 'red',
     set_color_bar: str = 'green',
     size: Tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
-) -> 'Image.Image':
+) -> Image.Image:
     """
     Draw a bar image with a gradient and indicators for current and set values.
 
@@ -1232,13 +1187,13 @@ def _draw_bar_image(
         max_value (float): Maximum value (right side).
         current_value (float | None): Current value to display, or None to skip.
         set_value (float | None): Desired set value to display, or None to skip.
-        colors (List[Tuple[int, int, int]]): List of RGB colors for the gradient.
+        colors (Tuple[Tuple[int, int, int], ...]): Tuple of RGB colors for the gradient.
         current_color_bar (str): Color for the current value bar.
         set_color_bar (str): Color for the set value bar.
         size (Tuple[float, float]): Image size as (width, height) in pixels.
 
     Returns:
-        PIL.Image.Image: RGB image with gradient and bars.
+        Image.Image: RGB image with gradient and bars.
 
     Raises:
         ImportError: If required libraries cannot be imported.
@@ -1270,7 +1225,7 @@ def _draw_bar_image(
 
         # Get the cached gradient image
         width, height = map(int, size)
-        gradient = _generate_gradient_image(min_value, max_value, width, height, tuple(colors))
+        gradient = _generate_gradient_image(min_value, max_value, width, height, colors)
 
         # Generate the bar image
         bar_image = _generate_bar_image(
@@ -1295,6 +1250,7 @@ def _draw_bar_image(
     except Exception as e:
         raise Exception(f"Error creating bar image: {str(e)}")
 
+@ft.lru_cache(maxsize=20)
 def _draw_light_temperature_bar(
     min_temperature: float = 2202,
     max_temperature: float = 6535,
@@ -1303,7 +1259,7 @@ def _draw_light_temperature_bar(
     current_color_bar: str = 'red',
     set_color_bar: str = 'green',
     size: Tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
-) -> 'Image.Image':
+) -> Image.Image:
     """
     Draw a light temperature bar with a gradient representing the visual appearance of white light.
 
@@ -1317,13 +1273,14 @@ def _draw_light_temperature_bar(
         size (Tuple[float, float]): Image size as (width, height) in pixels.
 
     Returns:
-        PIL.Image.Image: RGB image of the temperature bar.
+        Image.Image: RGB image of the temperature bar.
     """
-    colors = [
-        (255, 219, 172),  # Warm yellowish (#FFDBAC)
-        (255, 255, 255),  # Neutral white (#FFFFFF)
-        (212, 232, 255)   # Cool bluish-white (#D4E8FF)
-    ]
+    neutral_temperature = (min_temperature + max_temperature) / 2
+    colors = (
+        _color_temp_kelvin_to_rgb(int(min_temperature)),  # Warm color
+        _color_temp_kelvin_to_rgb(int(neutral_temperature)),  # Neutral color
+        _color_temp_kelvin_to_rgb(int(max_temperature))   # Cool color
+    )
     return _draw_bar_image(
         min_value=min_temperature,
         max_value=max_temperature,
@@ -1335,21 +1292,22 @@ def _draw_light_temperature_bar(
         size=size
     )
 
+@ft.lru_cache(maxsize=20)
 def _draw_light_brightness_bar(
     min_brightness: float = 0,
-    max_brightness: float = 100,
+    max_brightness: float = 255,
     current_brightness: float | None = 50,
     set_brightness: float | None = 50,
     current_color_bar: str = 'red',
     set_color_bar: str = 'green',
     size: Tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
-) -> 'Image.Image':
+) -> Image.Image:
     """
     Draw a light brightness bar with a gradient from dark to bright.
 
     Args:
         min_brightness (float): Minimum brightness (0%). Defaults to 0.
-        max_brightness (float): Maximum brightness (100%). Defaults to 100.
+        max_brightness (float): Maximum brightness (100%). Defaults to 255.
         current_brightness (float | None): Current brightness percentage, or None to skip.
         set_brightness (float | None): Desired brightness percentage, or None to skip.
         current_color_bar (str): Color for the current brightness bar. Defaults to 'red'.
@@ -1357,12 +1315,15 @@ def _draw_light_brightness_bar(
         size (Tuple[float, float]): Image size as (width, height) in pixels.
 
     Returns:
-        PIL.Image.Image: RGB image of the brightness bar.
+        Image.Image: RGB image of the brightness bar.
     """
-    colors = [
-        (50, 50, 50),    # Dark gray (#323232)
-        (255, 255, 255)  # Bright white (#FFFFFF)
-    ]
+    # Clamp brightness values to [0, 255] for valid RGB
+    min_brightness_clamped = max(0, min(255, int(min_brightness)))
+    max_brightness_clamped = max(0, min(255, int(max_brightness)))
+    colors = (
+        (min_brightness_clamped, min_brightness_clamped, min_brightness_clamped),
+        (max_brightness_clamped, max_brightness_clamped, max_brightness_clamped)
+    )
     return _draw_bar_image(
         min_value=min_brightness,
         max_value=max_brightness,
@@ -1374,46 +1335,7 @@ def _draw_light_brightness_bar(
         size=size
     )
 
-def _draw_light_temperature_bar(
-    min_temperature: float = 2202,
-    max_temperature: float = 6535,
-    current_temperature: float | None = 4000,
-    set_temperature: float | None = 4000,
-    current_color_bar: str = 'red',
-    set_color_bar: str = 'green',
-    size: Tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
-) -> 'Image.Image':
-    """
-    Draw a light temperature bar with a gradient representing the visual appearance of white light.
-
-    Args:
-        min_temperature (float): Minimum temperature in Kelvin (warmer). Defaults to 2202.
-        max_temperature (float): Maximum temperature in Kelvin (cooler). Defaults to 6535.
-        current_temperature (float | None): Current light temperature in Kelvin, or None to skip.
-        set_temperature (float | None): Desired light temperature in Kelvin, or None to skip.
-        current_color_bar (str): Color for the current temperature bar. Defaults to 'red'.
-        set_color_bar (str): Color for the set temperature bar. Defaults to 'green'.
-        size (Tuple[float, float]): Image size as (width, height) in pixels.
-
-    Returns:
-        PIL.Image.Image: RGB image of the temperature bar.
-    """
-    colors = [
-        (255, 219, 172),  # Warm yellowish (#FFDBAC)
-        (255, 255, 255),  # Neutral white (#FFFFFF)
-        (212, 232, 255)   # Cool bluish-white (#D4E8FF)
-    ]
-    return _draw_bar_image(
-        min_value=min_temperature,
-        max_value=max_temperature,
-        current_value=current_temperature,
-        set_value=set_temperature,
-        colors=colors,
-        current_color_bar=current_color_bar,
-        set_color_bar=set_color_bar,
-        size=size
-    )
-
+@ft.lru_cache(maxsize=20)
 def _draw_room_temperature_bar(
     min_temperature: float = 10,
     max_temperature: float = 30,
@@ -1422,7 +1344,7 @@ def _draw_room_temperature_bar(
     current_color_bar: str = 'red',
     set_color_bar: str = 'green',
     size: Tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
-) -> 'Image.Image':
+) -> Image.Image:
     """
     Draw a room temperature bar with a gradient from cool to warm.
 
@@ -1436,12 +1358,12 @@ def _draw_room_temperature_bar(
         size (Tuple[float, float]): Image size as (width, height) in pixels.
 
     Returns:
-        PIL.Image.Image: RGB image of the room temperature bar.
+        Image.Image: RGB image of the room temperature bar.
     """
-    colors = [
+    colors = (
         (135, 206, 250),  # Sky blue (#87CEFA)
         (255, 99, 71)     # Tomato red (#FF6347)
-    ]
+    )
     return _draw_bar_image(
         min_value=min_temperature,
         max_value=max_temperature,
