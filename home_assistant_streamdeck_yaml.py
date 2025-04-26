@@ -1174,10 +1174,10 @@ def _draw_bar_image(
     max_value: float,
     current_value: float | None,
     set_value: float | None,
-    colors: Tuple[Tuple[int, int, int], ...],
+    colors: tuple[tuple[int, int, int], ...],
     current_color_bar: str = 'red',
     set_color_bar: str = 'green',
-    size: Tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
+    size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
 ) -> Image.Image:
     """
     Draw a bar image with a gradient and indicators for current and set values.
@@ -1187,10 +1187,10 @@ def _draw_bar_image(
         max_value (float): Maximum value (right side).
         current_value (float | None): Current value to display, or None to skip.
         set_value (float | None): Desired set value to display, or None to skip.
-        colors (Tuple[Tuple[int, int, int], ...]): Tuple of RGB colors for the gradient.
+        colors (tuple[tuple[int, int, int], ...]): Tuple of RGB colors for the gradient.
         current_color_bar (str): Color for the current value bar.
         set_color_bar (str): Color for the set value bar.
-        size (Tuple[float, float]): Image size as (width, height) in pixels.
+        size (tuple[float, float]): Image size as (width, height) in pixels.
 
     Returns:
         Image.Image: RGB image with gradient and bars.
@@ -1258,7 +1258,7 @@ def _draw_light_temperature_bar(
     set_temperature: float | None = 4000,
     current_color_bar: str = 'red',
     set_color_bar: str = 'green',
-    size: Tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
+    size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
 ) -> Image.Image:
     """
     Draw a light temperature bar with a gradient representing the visual appearance of white light.
@@ -1270,7 +1270,7 @@ def _draw_light_temperature_bar(
         set_temperature (float | None): Desired light temperature in Kelvin, or None to skip.
         current_color_bar (str): Color for the current temperature bar. Defaults to 'red'.
         set_color_bar (str): Color for the set temperature bar. Defaults to 'green'.
-        size (Tuple[float, float]): Image size as (width, height) in pixels.
+        size (tuple[float, float]): Image size as (width, height) in pixels.
 
     Returns:
         Image.Image: RGB image of the temperature bar.
@@ -1300,7 +1300,7 @@ def _draw_light_brightness_bar(
     set_brightness: float | None = 50,
     current_color_bar: str = 'red',
     set_color_bar: str = 'green',
-    size: Tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
+    size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
 ) -> Image.Image:
     """
     Draw a light brightness bar with a gradient from dark to bright.
@@ -1312,7 +1312,7 @@ def _draw_light_brightness_bar(
         set_brightness (float | None): Desired brightness percentage, or None to skip.
         current_color_bar (str): Color for the current brightness bar. Defaults to 'red'.
         set_color_bar (str): Color for the set brightness bar. Defaults to 'green'.
-        size (Tuple[float, float]): Image size as (width, height) in pixels.
+        size (tuple[float, float]): Image size as (width, height) in pixels.
 
     Returns:
         Image.Image: RGB image of the brightness bar.
@@ -1343,7 +1343,7 @@ def _draw_room_temperature_bar(
     set_temperature: float | None = 20,
     current_color_bar: str = 'red',
     set_color_bar: str = 'green',
-    size: Tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
+    size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y)
 ) -> Image.Image:
     """
     Draw a room temperature bar with a gradient from cool to warm.
@@ -1355,7 +1355,7 @@ def _draw_room_temperature_bar(
         set_temperature (float | None): Desired room temperature in Celsius, or None to skip.
         current_color_bar (str): Color for the current temperature bar. Defaults to 'red'.
         set_color_bar (str): Color for the set temperature bar. Defaults to 'green'.
-        size (Tuple[float, float]): Image size as (width, height) in pixels.
+        size (tuple[float, float]): Image size as (width, height) in pixels.
 
     Returns:
         Image.Image: RGB image of the room temperature bar.
