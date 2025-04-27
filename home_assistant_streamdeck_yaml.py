@@ -655,6 +655,11 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                         set_brightness=_dial_value(self),
                         current_brightness=get_attr("brightness"),
                     )
+                elif which == "room-temperature-bar":
+                    image = _draw_room_temperature_bar(
+                        set_temperature=_dial_value(self),
+                        current_temperature=get_attr("current_temperature"),
+                    )
 
             icon_convert_to_grayscale = False
             text = dial.text
