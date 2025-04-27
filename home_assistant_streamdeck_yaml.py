@@ -1220,7 +1220,7 @@ def _draw_bar_image(
     if not (min_value < max_value):
         msg = f"min_value ({min_value}) must be less than max_value ({max_value})"
         raise ValueError(msg)
-    if not (len(colors) < min_number_of_colors):
+    if len(colors) < min_number_of_colors:
         msg = f"colors must contain at least {min_number_of_colors} RGB tuples"
         raise ValueError(msg)
     if not all(
