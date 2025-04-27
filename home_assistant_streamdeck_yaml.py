@@ -1130,6 +1130,7 @@ def _generate_gradient_image(width: int, height: int, colors: tuple) -> Image.Im
     return gradient
 
 
+@ft.lru_cache(maxsize=200)
 def _generate_bar_image(
     min_value: float,
     max_value: float,
