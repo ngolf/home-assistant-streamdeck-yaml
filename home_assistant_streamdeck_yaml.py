@@ -1237,20 +1237,6 @@ def _draw_bar_image(
         msg = f"colors must be valid RGB tuples: {colors}"
         raise ValueError(msg)
 
-    # Debug message with parameters
-    params = {
-        "min_value": min_value,
-        "max_value": max_value,
-        "current_value": current_value,
-        "set_value": set_value,
-        "colors": colors,
-        "current_color_bar": current_color_bar,
-        "set_color_bar": set_color_bar,
-        "size": size,
-    }
-    # Assuming console.log is defined; replace with print if needed
-    print(f"_draw_bar_image called with: {params}")
-
     # Get the cached gradient image
     width, height = map(int, size)
     gradient = _generate_gradient_image(width, height, colors)
@@ -2230,7 +2216,7 @@ def update_dial(
     """Update the dial."""
     dial = config.dial(key)
     assert dial is not None
-
+    console.log(f"Updating dial {key}")
     if dial.dial_event_type == "PUSH":
         return
 
