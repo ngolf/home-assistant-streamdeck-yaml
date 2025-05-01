@@ -2213,7 +2213,7 @@ def get_size_per_dial(deck: StreamDeck) -> tuple[int, int]:
 def update_all_dials(
     deck: StreamDeck,
     config: Config,
-    complete_state: dict[str, Any],
+    complete_state: StateDict,
 ) -> None:
     """Updates configured dials and clears unconfigured dial slots."""
     console.log("Called update_all_dials")
@@ -2223,9 +2223,7 @@ def update_all_dials(
 
     # Update configured dials
     for key, current_dial in enumerate(config.current_page().dials):
-        if current_dial is None:
-            console.log(f"Dial {key} is None, skipping")
-            continue
+        assert current_dial is not None
         if current_dial.entity_id is None:
             console.log(f"Dial {key} has no entity_id, skipping")
             continue
@@ -2264,7 +2262,7 @@ def update_dial(
     deck: StreamDeck,
     key: int,
     config: Config,
-    complete_state: dict[str, Any],
+    complete_state: StateDict,
     data: dict[str, Any] | None = None,
 ) -> None:
     """Update the dial."""
@@ -2276,17 +2274,15 @@ def update_dial(
 
     if data is not None:
         if "event" in data and "data" in data["event"]:
-            event_data: dict[str, Any] = data["event"]["data"]
-            new_state: dict[str, Any] = event_data["new_state"]
+            event_data = data["event"]["data"]
+            new_state = event_data["new_state"]
             dial.update_attributes(new_state)
         else:
             dial.update_attributes(data)
 
     size_per_dial = get_size_per_dial(deck)
     dial_key = config.current_page().get_sorted_key(dial)
-    if dial_key is None:
-        console.log(f"Dial {key} has no valid dial_key, skipping")
-        return
+    assert dial_key is not None
     dial_offset = dial_key * size_per_dial[0]
     image = dial.render_lcd_image(
         complete_state=complete_state,
