@@ -171,17 +171,17 @@ class ServiceData(BaseModel, extra="forbid"):  # type: ignore[call-arg]
         self,
         callback: Callable[[], None | Coroutine] | None = None,
     ) -> bool:
-        """Start a new timer or restart if none is running."""
+        """Starts or restarts AsyncDelayedCallback timer."""
         if not self.delay:
             return False
-        if self._timer is None or not self._timer.is_running():
-            assert isinstance(self.delay, (int, float)), f"Invalid delay: {self.delay}"
+        if self._timer is None:
+            assert isinstance(
+                self.delay,
+                (int, float),
+            ), f"Invalid delay: {self.delay}"
             self._timer = AsyncDelayedCallback(delay=self.delay, callback=callback)
-            self._timer.start()
-            console.log(f"Started timer with delay {self.delay}")
-            return True
-        console.log(f"Timer already running with delay {self.delay}")
-        return False
+        self._timer.start()
+        return True
 
     @classmethod
     def templatable(cls: type[_ButtonDialBase]) -> set[str]:
@@ -2233,6 +2233,25 @@ def _light_page(
         )
         buttons_empty = []
 
+    def color_temp_dial() -> Dial:
+        min_value = min(color_temp_kelvin) if color_temp_kelvin else 0
+        max_value = max(color_temp_kelvin) if color_temp_kelvin else 100
+        step = (max_value - min_value) / 15
+        return Dial(
+            entity_id=entity_id,
+            icon="light-temperature-bar:",
+            turn=DialTurnConfig(
+                service="light.turn_on",
+                delay=0.5,
+                properties=TurnProperties(
+                    service_attribute="color_temp_kelvin",
+                    min=min_value,
+                    max=max_value,
+                    step=step,
+                ),
+            ),
+        )
+
     return Page(
         name="Lights",
         buttons=buttons_colors
@@ -2240,6 +2259,7 @@ def _light_page(
         + buttons_empty
         + buttons_brightness
         + buttons_back,
+        dials=[color_temp_dial()],
     )
 
 
@@ -2468,6 +2488,8 @@ def _update_state(
 
             keys = _keys(eid, buttons)
             for key in keys:
+                if key >= deck.key_count():
+                    continue  # Skip keys beyond the deck's key count
                 console.log(f"Updating key {key} for {eid}")
                 update_key_image(
                     deck,
@@ -3187,8 +3209,6 @@ async def handle_dial_event(
         console.log(
             f"Dial state after physical turn: {dial.turn.properties.state if dial.turn else 'N/A'}",
         )
-        update_dial_lcd(deck, key, config, complete_state)  # Immediate LCD update
-        return  # Timer handled in _on_dial_event_callback
 
     if local_update:
         update_dial_lcd(deck, key, config, complete_state)
@@ -3216,6 +3236,9 @@ async def handle_dial_event(
         if "entity_id" not in service_data and dial.entity_id:
             service_data["entity_id"] = dial.entity_id
 
+        console.log(
+            f"Calling service {config_item.service} with data {service_data} for dial {dial.entity_id}",
+        )
         await call_service(
             websocket,
             config_item.service,
