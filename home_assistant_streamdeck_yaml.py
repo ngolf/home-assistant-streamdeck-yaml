@@ -1164,6 +1164,13 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                 else self.text_color or "white"
             )
 
+            attributes = {}
+            if self.entity_id is not None:
+                attributes = complete_state.get(self.entity_id, {}).get("attributes", {})
+
+            def get_attr(key: str) -> str | None:
+                return attributes.get(key)
+
             if isinstance(icon, str) and ":" in icon:
                 which, id_ = icon.split(":", 1)
                 if which == "spotify":
@@ -1179,6 +1186,23 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                         percentage=pct,
                         size=size,
                         radius=40,
+                    )
+                elif which == "light-temperature-bar":
+                    ## populate min and max with either what's in the config, or in the state of the entity, or default
+                    image = _draw_light_temperature_bar(
+                        set_temperature=_dial_value(self),
+                        current_temperature=get_attr("color_temp_kelvin"),
+                    )
+                elif which == "light-brightness-bar":
+                    ## populate min and max with either what's in the config, or in the state of the entity, or default
+                    image = _draw_light_brightness_bar(
+                        set_brightness=_dial_value(self),
+                        current_brightness=get_attr("brightness"),
+                    )
+                elif which == "room-temperature-bar":
+                    image = _draw_room_temperature_bar(
+                        set_temperature=_dial_value(self),
+                        current_temperature=get_attr("current_temperature"),
                     )
 
             icon_convert_to_grayscale = False
@@ -1650,6 +1674,300 @@ class AsyncDelayedCallback:
             elapsed_time = time.time() - self.start_time
             return max(0, self.delay - elapsed_time)
         return 0
+
+
+@ft.lru_cache(maxsize=20)
+def _generate_gradient_image(width: int, height: int, colors: tuple) -> Image.Image:
+    """Generate and cache a gradient image based on a value range and equally spaced color stops."""
+    gradient = Image.new("RGBA", (width, height))
+    min_number_of_colors: int = 2
+    # Use colors directly as a tuple of RGB tuples
+    color_list = colors  # Colors is ((r,g,b), ...)
+
+    # Number of segments is one less than number of colors
+    num_colors = len(color_list)
+    if num_colors < min_number_of_colors:
+        msg = f"At least {min_number_of_colors} colors are required for a gradient"
+        raise ValueError(msg)
+    num_segments = num_colors - 1
+    segment_width = width / num_segments if num_segments > 0 else width
+
+    # Interpolate colors for the gradient
+    pixels = gradient.load()
+    for x in range(width):
+        # Determine which segment this x belongs to
+        segment_index = min(int(x / segment_width), num_segments - 1)
+        # Interpolation factor within the segment
+        t = (x - segment_index * segment_width) / segment_width if segment_width > 0 else 0
+        t = min(max(t, 0), 1)  # Clamp t to [0, 1]
+
+        # Get the start and end colors for this segment
+        start_color = color_list[segment_index]
+        end_color = color_list[segment_index + 1]
+
+        # Linear interpolation of RGB values
+        r = int(start_color[0] + t * (end_color[0] - start_color[0]))
+        g = int(start_color[1] + t * (end_color[1] - start_color[1]))
+        b = int(start_color[2] + t * (end_color[2] - start_color[2]))
+
+        # Fill the column with the interpolated color (fully opaque)
+        for y in range(height):
+            pixels[x, y] = (r, g, b, 255)
+
+    return gradient
+
+
+@ft.lru_cache(maxsize=200)
+def _generate_bar_image(
+    min_value: float,
+    max_value: float,
+    current_value: float | None,
+    set_value: float | None,
+    width: int,
+    height: int,
+    current_color_bar: str = "red",
+    set_color_bar: str = "green",
+) -> Image.Image:
+    """Generate an RGBA image with bars for current and set values on a transparent background."""
+    # Create a fully transparent RGBA image
+    bar_image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(bar_image)
+
+    # Map values to x-coordinates, ensuring they stay within bounds
+    value_range = max_value - min_value
+    current_x: int | None
+    set_x: int | None
+    if value_range == 0:
+        current_x = set_x = (width - 1) // 2
+    else:
+        current_x = (
+            int(((current_value - min_value) / value_range) * (width - 1))
+            if current_value is not None
+            else None
+        )
+        set_x = (
+            int(((set_value - min_value) / value_range) * (width - 1))
+            if set_value is not None
+            else None
+        )
+
+    # Adjust x-coordinates to ensure 3-pixel width at the edges
+    def draw_line_with_width(center_x: int, color: str) -> None:
+        center_x = max(1, min(width - 2, center_x))  # Ensure center allows for a 3-pixel line
+        if center_x <= 1:
+            start_x = 0
+        elif center_x >= width - 2:
+            start_x = width - 3
+        else:
+            start_x = center_x - 1
+        for x in range(start_x, start_x + 3):
+            if 0 <= x < width:
+                draw.line([(x, 0), (x, height - 1)], fill=color)
+
+    # Draw lines only for non-None values
+    if current_x is not None:
+        draw_line_with_width(current_x, current_color_bar)
+    if set_x is not None:
+        draw_line_with_width(set_x, set_color_bar)
+
+    return bar_image
+
+
+@ft.lru_cache(maxsize=20)
+def _draw_bar_image(
+    min_value: float,
+    max_value: float,
+    current_value: float | None,
+    set_value: float | None,
+    colors: tuple[tuple[int, int, int], ...],
+    current_color_bar: str = "red",
+    set_color_bar: str = "green",
+    size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y),
+) -> Image.Image:
+    """Draw a bar image with a gradient and indicators for current and set values.
+
+    Args:
+        min_value (float): Minimum value (left side).
+        max_value (float): Maximum value (right side).
+        current_value (float | None): Current value to display, or None to skip.
+        set_value (float | None): Desired set value to display, or None to skip.
+        colors (tuple[tuple[int, int, int], ...]): Tuple of RGB colors for the gradient.
+        current_color_bar (str): Color for the current value bar.
+        set_color_bar (str): Color for the set value bar.
+        size (tuple[float, float]): Image size as (width, height) in pixels.
+
+    Returns:
+        Image.Image: RGB image with gradient and bars.
+
+    """
+    # Validate inputs
+    min_number_of_colors = 2
+    color_tuple_size = 3
+    max_rgb_value = 255
+    if not (min_value < max_value):
+        msg = f"min_value ({min_value}) must be less than max_value ({max_value})"
+        raise ValueError(msg)
+    if len(colors) < min_number_of_colors:
+        msg = f"colors must contain at least {min_number_of_colors} RGB tuples"
+        raise ValueError(msg)
+    if not all(
+        isinstance(c, tuple)
+        and len(c) == color_tuple_size
+        and all(isinstance(v, int) and 0 <= v <= max_rgb_value for v in c)
+        for c in colors
+    ):
+        msg = f"colors must be valid RGB tuples: {colors}"
+        raise ValueError(msg)
+
+    # Get the cached gradient image
+    width, height = map(int, size)
+    gradient = _generate_gradient_image(width, height, colors)
+
+    # Generate the bar image
+    bar_image = _generate_bar_image(
+        min_value=min_value,
+        max_value=max_value,
+        current_value=current_value,
+        set_value=set_value,
+        width=width,
+        height=height,
+        current_color_bar=current_color_bar,
+        set_color_bar=set_color_bar,
+    )
+
+    # Combine the gradient and bar images
+    combined = Image.alpha_composite(gradient, bar_image)
+
+    # Convert to RGB for compatibility
+    return combined.convert("RGB")
+
+
+@ft.lru_cache(maxsize=20)
+def _draw_light_temperature_bar(
+    min_temperature: float = 2202,
+    max_temperature: float = 6535,
+    current_temperature: float | None = 4000,
+    set_temperature: float | None = 4000,
+    current_color_bar: str = "red",
+    set_color_bar: str = "green",
+    size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y),
+) -> Image.Image:
+    """Draw a light temperature bar with a gradient representing the visual appearance of white light.
+
+    Args:
+        min_temperature (float): Minimum temperature in Kelvin (warmer). Defaults to 2202.
+        max_temperature (float): Maximum temperature in Kelvin (cooler). Defaults to 6535.
+        current_temperature (float | None): Current light temperature in Kelvin, or None to skip.
+        set_temperature (float | None): Desired light temperature in Kelvin, or None to skip.
+        current_color_bar (str): Color for the current temperature bar. Defaults to 'red'.
+        set_color_bar (str): Color for the set temperature bar. Defaults to 'green'.
+        size (tuple[float, float]): Image size as (width, height) in pixels.
+
+    Returns:
+        Image.Image: RGB image of the temperature bar.
+
+    """
+    neutral_temperature = (min_temperature + max_temperature) / 2
+    colors = (
+        _color_temp_kelvin_to_rgb(int(min_temperature)),  # Warm color
+        _color_temp_kelvin_to_rgb(int(neutral_temperature)),  # Neutral color
+        _color_temp_kelvin_to_rgb(int(max_temperature)),  # Cool color
+    )
+    return _draw_bar_image(
+        min_value=min_temperature,
+        max_value=max_temperature,
+        current_value=current_temperature,
+        set_value=set_temperature,
+        colors=colors,
+        current_color_bar=current_color_bar,
+        set_color_bar=set_color_bar,
+        size=size,
+    )
+
+
+@ft.lru_cache(maxsize=20)
+def _draw_light_brightness_bar(
+    min_brightness: float = 0,
+    max_brightness: float = 255,
+    current_brightness: float | None = 50,
+    set_brightness: float | None = 50,
+    current_color_bar: str = "red",
+    set_color_bar: str = "green",
+    size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y),
+) -> Image.Image:
+    """Draw a light brightness bar with a gradient from dark to bright.
+
+    Args:
+        min_brightness (float): Minimum brightness (0%). Defaults to 0.
+        max_brightness (float): Maximum brightness (100%). Defaults to 255.
+        current_brightness (float | None): Current brightness percentage, or None to skip.
+        set_brightness (float | None): Desired brightness percentage, or None to skip.
+        current_color_bar (str): Color for the current brightness bar. Defaults to 'red'.
+        set_color_bar (str): Color for the set brightness bar. Defaults to 'green'.
+        size (tuple[float, float]): Image size as (width, height) in pixels.
+
+    Returns:
+        Image.Image: RGB image of the brightness bar.
+
+    """
+    # Clamp brightness values to [0, 255] for valid RGB
+    min_brightness_clamped = max(0, min(255, int(min_brightness)))
+    max_brightness_clamped = max(0, min(255, int(max_brightness)))
+    colors = (
+        (min_brightness_clamped, min_brightness_clamped, min_brightness_clamped),
+        (max_brightness_clamped, max_brightness_clamped, max_brightness_clamped),
+    )
+    return _draw_bar_image(
+        min_value=min_brightness,
+        max_value=max_brightness,
+        current_value=current_brightness,
+        set_value=set_brightness,
+        colors=colors,
+        current_color_bar=current_color_bar,
+        set_color_bar=set_color_bar,
+        size=size,
+    )
+
+
+@ft.lru_cache(maxsize=20)
+def _draw_room_temperature_bar(
+    min_temperature: float = 10,
+    max_temperature: float = 30,
+    current_temperature: float | None = 20,
+    set_temperature: float | None = 20,
+    current_color_bar: str = "red",
+    set_color_bar: str = "green",
+    size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y),
+) -> Image.Image:
+    """Draw a room temperature bar with a gradient from cool to warm.
+
+    Args:
+        min_temperature (float): Minimum temperature in Celsius (cooler). Defaults to 10.
+        max_temperature (float): Maximum temperature in Celsius (warmer). Defaults to 30.
+        current_temperature (float | None): Current room temperature in Celsius, or None to skip.
+        set_temperature (float | None): Desired room temperature in Celsius, or None to skip.
+        current_color_bar (str): Color for the current temperature bar. Defaults to 'red'.
+        set_color_bar (str): Color for the set temperature bar. Defaults to 'green'.
+        size (tuple[float, float]): Image size as (width, height) in pixels.
+
+    Returns:
+        Image.Image: RGB image of the room temperature bar.
+
+    """
+    colors = (
+        (135, 206, 250),  # Sky blue (#87CEFA)
+        (255, 99, 71),  # Tomato red (#FF6347)
+    )
+    return _draw_bar_image(
+        min_value=min_temperature,
+        max_value=max_temperature,
+        current_value=current_temperature,
+        set_value=set_temperature,
+        colors=colors,
+        current_color_bar=current_color_bar,
+        set_color_bar=set_color_bar,
+        size=size,
+    )
 
 
 def _draw_percentage_ring(
@@ -2288,12 +2606,14 @@ def _round(num: float, digits: int) -> int | float:
     return round(num, digits)
 
 
+# Move to Dial class
 def _dial_value(dial: Dial | None) -> float:
     if not dial or not dial.turn:
         return 0
     return dial.turn.properties.state
 
 
+# Move to Dial class
 def _dial_attr(
     attr: str,
     dial: Dial | None = None,
@@ -2545,23 +2865,71 @@ def _generate_failed_icon(
     )
 
 
+_blank_image_cache: dict[tuple[int, int], bytes] = {}
+
+
+def _get_blank_image(size: tuple[int, int]) -> bytes:
+    """Get or create a blank (black) JPEG image for the given size."""
+    if size not in _blank_image_cache:
+        blank_image: Image.Image = Image.new("RGB", size, (0, 0, 0))
+        img_bytes = io.BytesIO()
+        blank_image.save(img_bytes, format="JPEG")
+        _blank_image_cache[size] = img_bytes.getvalue()
+    return _blank_image_cache[size]
+
+
+def get_lcd_size(deck: StreamDeck) -> tuple[int, int]:
+    """Get the LCD touchscreen size."""
+    return deck.touchscreen_image_format()["size"]
+
+
+def get_size_per_dial(deck: StreamDeck) -> tuple[int, int]:
+    """Get the size of each dial's LCD region."""
+    size_lcd: tuple[int, int] = get_lcd_size(deck)
+    return (size_lcd[0] // deck.dial_count(), size_lcd[1])
+
+
 def update_all_dials(
     deck: StreamDeck,
     config: Config,
     complete_state: StateDict,
 ) -> None:
-    """Update all dials on the StreamDeck."""
-    for key in range(deck.dial_count()):
-        dial = config.dial(key)
-        if dial:
-            # Sync dial state with HA before rendering
-            dial.sync_with_ha_state(complete_state)
-            update_dial_lcd(
-                deck=deck,
-                key=key,
-                config=config,
-                complete_state=complete_state,
+    """Updates configured dials and clears unconfigured dial slots."""
+    console.log("Called update_all_dials")
+
+    # Track configured dial keys
+    configured_keys: set[int] = set()
+
+    # Update configured dials
+    for key, current_dial in enumerate(config.current_page().dials):
+        assert current_dial is not None
+        if current_dial.entity_id is None:
+            console.log(f"Dial {key} has no entity_id, skipping")
+            continue
+        configured_keys.add(key)
+        update_dial_lcd(
+            deck,
+            key,
+            config,
+            complete_state,
+        )
+
+    # Clear unconfigured dial slots
+    num_physical: int = deck.dial_count()
+    unconfigured_keys: set[int] = set(range(num_physical)) - configured_keys
+    if unconfigured_keys:
+        size_per_dial: tuple[int, int] = get_size_per_dial(deck)
+        lcd_image_bytes: bytes = _get_blank_image(size_per_dial)
+        for dial_key in unconfigured_keys:
+            dial_offset: int = dial_key * size_per_dial[0]
+            deck.set_touchscreen_image(
+                lcd_image_bytes,
+                dial_offset,
+                0,
+                width=size_per_dial[0],
+                height=size_per_dial[1],
             )
+        console.log(f"Cleared unconfigured dial slots: {unconfigured_keys}")
 
 
 def update_dial_lcd(
@@ -2575,8 +2943,7 @@ def update_dial_lcd(
     if not dial:
         return
 
-    size_lcd = deck.touchscreen_image_format()["size"]
-    size_per_dial = (size_lcd[0] // deck.dial_count(), size_lcd[1])
+    size_per_dial = get_size_per_dial(deck)
     image = dial.render_lcd_image(
         complete_state=complete_state,
         size=size_per_dial,
@@ -2589,8 +2956,8 @@ def update_dial_lcd(
         lcd_image_bytes,
         key * size_per_dial[0],
         0,
-        size_per_dial[0],
-        size_per_dial[1],
+        width=size_per_dial[0],
+        height=size_per_dial[1],
     )
 
 
@@ -3498,6 +3865,10 @@ def _rich_table_str(df: pd.DataFrame) -> str:
     return console.file.getvalue()
 
 
+# Define YAML node type
+YamlNode = dict[str, Any] | list[Any] | str | int | float | bool | None
+
+
 def safe_load_yaml(
     f: TextIO | str,
     *,
@@ -3507,21 +3878,27 @@ def safe_load_yaml(
     """Load a YAML file."""
     included_files = []
 
-    def _traverse_yaml(node: dict[str, Any], variables: dict[str, str]) -> None:
+    def _traverse_yaml(node: YamlNode, variables: dict[str, str]) -> YamlNode:
         if isinstance(node, dict):
             for key, value in node.items():
-                if not isinstance(value, dict):
+                if isinstance(value, str):
+                    result = value  # Start with the original string
                     for var, var_value in variables.items():
-                        if not isinstance(value, str):
-                            continue
-
                         regex_format = rf"\$\{{{var}\}}"
-                        node[key] = re.sub(regex_format, str(var_value), node[key])
+                        result = re.sub(regex_format, str(var_value), result)
+                    node[key] = result
                 else:
-                    _traverse_yaml(value, variables)
-        elif isinstance(node, list):
-            for item in node:
-                _traverse_yaml(item, variables)
+                    node[key] = _traverse_yaml(value, variables)
+            return node
+        if isinstance(node, list):
+            return [_traverse_yaml(item, variables) for item in node]
+        if isinstance(node, str):
+            result = node  # Start with the original string
+            for var, var_value in variables.items():
+                regex_format = rf"\$\{{{var}\}}"
+                result = re.sub(regex_format, str(var_value), result)
+            return result
+        return node
 
     class IncludeLoader(yaml.SafeLoader):
         """YAML Loader with `!include` constructor."""
