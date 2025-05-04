@@ -992,9 +992,6 @@ class DialTurnConfig(ServiceData, extra="forbid"):  # type: ignore[call-arg]
             new_state = min(max_val, max(min_val, new_state))
             console.log(f"Before update: state={self.properties.state}")
             self.properties.state = new_state
-            console.log(
-                f"Updated turn state to {new_state} on physical turn (value={value}, step={step}, min={min_val}, max={max_val})",
-            )
         except (ValueError, TypeError) as e:
             console.log(f"Failed to update turn state on physical turn: {e}")
             self.properties.state = min_val
@@ -1190,17 +1187,23 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
                 elif which == "light-temperature-bar":
                     ## populate min and max with either what's in the config, or in the state of the entity, or default
                     image = _draw_light_temperature_bar(
+                        min_temperature=self.turn.properties.min if self.turn else None,
+                        max_temperature=self.turn.properties.max if self.turn else None,
                         set_temperature=_dial_value(self),
                         current_temperature=get_attr("color_temp_kelvin"),
                     )
                 elif which == "light-brightness-bar":
                     ## populate min and max with either what's in the config, or in the state of the entity, or default
                     image = _draw_light_brightness_bar(
+                        min_brightness=self.turn.properties.min if self.turn else None,
+                        max_brightness=self.turn.properties.max if self.turn else None,
                         set_brightness=_dial_value(self),
                         current_brightness=get_attr("brightness"),
                     )
                 elif which == "room-temperature-bar":
                     image = _draw_room_temperature_bar(
+                        min_temperature=self.turn.properties.min if self.turn else None,
+                        max_temperature=self.turn.properties.max if self.turn else None,
                         set_temperature=_dial_value(self),
                         current_temperature=get_attr("current_temperature"),
                     )
@@ -1332,7 +1335,7 @@ class Page(BaseModel):
     _parent_page_index: int = PrivateAttr([])
     _dials_sorted: list[Dial] = PrivateAttr([])
 
-    def sync_all_dials_with_ha_state(
+    def apply_ha_update_to_all_dials(
         self,
         complete_state: StateDict,
         deck: StreamDeck,
@@ -1346,7 +1349,7 @@ class Page(BaseModel):
         entity_id = event_data.get("entity_id")
         for key, dial in enumerate(self.dials):
             if dial.entity_id == entity_id and dial.process_ha_update(event_data):
-                console.log(f"Dial {key} state updated, refreshing LCD")
+                console.log(f"Dial {key} for {self.name=} state updated, refreshing LCD")
                 update_dial_lcd(
                     deck=deck,
                     key=key,
@@ -1846,8 +1849,8 @@ def _draw_bar_image(
 def _draw_light_temperature_bar(
     min_temperature: float = 2202,
     max_temperature: float = 6535,
-    current_temperature: float | None = 4000,
-    set_temperature: float | None = 4000,
+    current_temperature: float | None = None,
+    set_temperature: float | None = None,
     current_color_bar: str = "red",
     set_color_bar: str = "green",
     size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y),
@@ -1889,12 +1892,13 @@ def _draw_light_temperature_bar(
 def _draw_light_brightness_bar(
     min_brightness: float = 0,
     max_brightness: float = 255,
-    current_brightness: float | None = 50,
-    set_brightness: float | None = 50,
+    current_brightness: float | None = None,
+    set_brightness: float | None = None,
     current_color_bar: str = "red",
     set_color_bar: str = "green",
     size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y),
 ) -> Image.Image:
+    console.log(f"Drawing light brightness bar with arguments: {locals()}")
     """Draw a light brightness bar with a gradient from dark to bright.
 
     Args:
@@ -1933,8 +1937,8 @@ def _draw_light_brightness_bar(
 def _draw_room_temperature_bar(
     min_temperature: float = 10,
     max_temperature: float = 30,
-    current_temperature: float | None = 20,
-    set_temperature: float | None = 20,
+    current_temperature: float | None = None,
+    set_temperature: float | None = None,
     current_color_bar: str = "red",
     set_color_bar: str = "green",
     size: tuple[float, float] = (LCD_ICON_SIZE_X, LCD_ICON_SIZE_Y),
@@ -2166,6 +2170,8 @@ def _light_page(
     color_temp_kelvin: tuple[int, ...] | None,
     colormap: str | None,
     brightnesses: tuple[int, ...] | None,
+    *,
+    draw_dials: bool = False,
 ) -> Page:
     """Return a page of buttons for controlling lights."""
     if colormap is None and colors is None:
@@ -2184,31 +2190,37 @@ def _light_page(
         )
         for color in colors
     ]
-    buttons_color_temp_kelvin = [
-        Button(
-            icon_background_color=_rgb_to_hex(_color_temp_kelvin_to_rgb(kelvin)),
-            service="light.turn_on",
-            service_data={
-                "entity_id": entity_id,
-                "color_temp_kelvin": kelvin,
-            },
-        )
-        for kelvin in (color_temp_kelvin or ())
-    ]
+
+    buttons_color_temp_kelvin = (
+        [
+            Button(
+                icon_background_color=_rgb_to_hex(_color_temp_kelvin_to_rgb(kelvin)),
+                service="light.turn_on",
+                service_data={
+                    "entity_id": entity_id,
+                    "color_temp_kelvin": kelvin,
+                },
+            )
+            for kelvin in (color_temp_kelvin or ())
+        ]
+        if not draw_dials
+        else []
+    )
     buttons_brightness = []
-    for brightness in brightnesses if brightnesses is not None else [0, 33, 66, 100]:
-        background_color = _scale_hex_color("#FFFFFF", brightness / 100)
-        button = Button(
-            icon_background_color=background_color,
-            service="light.turn_on",
-            text_color=_max_contrast_color(background_color),
-            text=f"{brightness}%" if brightness > 0 else "OFF",
-            service_data={
-                "entity_id": entity_id,
-                "brightness_pct": brightness,
-            },
-        )
-        buttons_brightness.append(button)
+    if not draw_dials:
+        for brightness in brightnesses if brightnesses is not None else [0, 33, 66, 100]:
+            background_color = _scale_hex_color("#FFFFFF", brightness / 100)
+            button = Button(
+                icon_background_color=background_color,
+                service="light.turn_on",
+                text_color=_max_contrast_color(background_color),
+                text=f"{brightness}%" if brightness > 0 else "OFF",
+                service_data={
+                    "entity_id": entity_id,
+                    "brightness_pct": brightness,
+                },
+            )
+            buttons_brightness.append(button)
     buttons_back = [Button(special_type="close-page")]
     number_of_buttons_except_close_and_empty = (
         len(buttons_colors)
@@ -2252,6 +2264,25 @@ def _light_page(
             ),
         )
 
+    def brightness_dial() -> Dial:
+        min_value = min(brightnesses) if brightnesses else 0
+        max_value = max(brightnesses) if brightnesses else 100
+        step = (max_value - min_value) / 15
+        return Dial(
+            entity_id=entity_id,
+            icon="light-brightness-bar:",
+            turn=DialTurnConfig(
+                service="light.turn_on",
+                delay=0.5,
+                properties=TurnProperties(
+                    service_attribute="brightness",
+                    min=min_value,
+                    max=max_value,
+                    step=step,
+                ),
+            ),
+        )
+
     return Page(
         name="Lights",
         buttons=buttons_colors
@@ -2259,7 +2290,7 @@ def _light_page(
         + buttons_empty
         + buttons_brightness
         + buttons_back,
-        dials=[color_temp_dial()],
+        dials=[color_temp_dial(), brightness_dial()] if draw_dials else [],
     )
 
 
@@ -2484,7 +2515,7 @@ def _update_state(
                 return
 
             # Update all dials on the page
-            config.current_page().sync_all_dials_with_ha_state(complete_state, deck, config, data)
+            config.current_page().apply_ha_update_to_all_dials(complete_state, deck, config, data)
 
             keys = _keys(eid, buttons)
             for key in keys:
@@ -2923,6 +2954,7 @@ def update_all_dials(
     configured_keys: set[int] = set()
 
     # Update configured dials
+    config.current_page().apply_ha_update_to_all_dials(complete_state, deck, config)
     for key, current_dial in enumerate(config.current_page().dials):
         assert current_dial is not None
         if current_dial.entity_id is None:
@@ -3206,9 +3238,6 @@ async def handle_dial_event(
 
     if event_type == DialEventType.TURN and value != 0:  # Skip value=0 to avoid resets
         dial.update_on_physical_turn(value)  # Increment state
-        console.log(
-            f"Dial state after physical turn: {dial.turn.properties.state if dial.turn else 'N/A'}",
-        )
 
     if local_update:
         update_dial_lcd(deck, key, config, complete_state)
@@ -3379,6 +3408,7 @@ async def _handle_key_press(  # noqa: PLR0912, PLR0915
             colors=special_type_data.get("colors", None),
             color_temp_kelvin=special_type_data.get("color_temp_kelvin", None),
             brightnesses=special_type_data.get("brightnesses", None),
+            draw_dials=deck.deck_type() == "Stream Deck +",
         )
         config.load_page_as_detached(page)
         update_all()
