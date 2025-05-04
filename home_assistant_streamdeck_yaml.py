@@ -1064,11 +1064,7 @@ class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
             return False
         entity_state = complete_state.get(self.entity_id)
         new_state = None
-        if (
-            entity_state
-            and entity_state.get("state") == "on"
-            and self.turn.properties.service_attribute
-        ):
+        if entity_state and self.turn.properties.service_attribute:
             value = entity_state.get("attributes", {}).get(self.turn.properties.service_attribute)
             if value is not None:
                 new_state = float(value)
@@ -1335,11 +1331,26 @@ class Page(BaseModel):
     _parent_page_index: int = PrivateAttr([])
     _dials_sorted: list[Dial] = PrivateAttr([])
 
-    def apply_ha_update_to_all_dials(
+    def update_all_dials_with_ha_state(
         self,
         complete_state: StateDict,
         deck: StreamDeck,
-        config: Config,
+    ) -> None:
+        """Updates the dial values with the Home Assistant state."""
+        for key, dial in enumerate(self.dials):
+            if dial.sync_with_ha_state(complete_state):
+                console.log(f"Dial {key} state updated, refreshing LCD")
+                update_dial_lcd(
+                    deck,
+                    key,
+                    self,
+                    complete_state,
+                )
+
+    def update_all_dials_with_ha_state_change(
+        self,
+        complete_state: StateDict,
+        deck: StreamDeck,
         data: dict[str, Any] | None = None,
     ) -> None:
         """Updates the dial values with the Home Assistant state."""
@@ -1353,7 +1364,7 @@ class Page(BaseModel):
                 update_dial_lcd(
                     deck=deck,
                     key=key,
-                    config=config,
+                    page=self,
                     complete_state=complete_state,
                 )
                 break
@@ -2515,7 +2526,11 @@ def _update_state(
                 return
 
             # Update all dials on the page
-            config.current_page().apply_ha_update_to_all_dials(complete_state, deck, config, data)
+            config.current_page().update_all_dials_with_ha_state_change(
+                complete_state,
+                deck,
+                data,
+            )
 
             keys = _keys(eid, buttons)
             for key in keys:
@@ -2954,7 +2969,7 @@ def update_all_dials(
     configured_keys: set[int] = set()
 
     # Update configured dials
-    config.current_page().apply_ha_update_to_all_dials(complete_state, deck, config)
+    config.current_page().update_all_dials_with_ha_state(complete_state, deck)
     for key, current_dial in enumerate(config.current_page().dials):
         assert current_dial is not None
         if current_dial.entity_id is None:
@@ -2964,7 +2979,7 @@ def update_all_dials(
         update_dial_lcd(
             deck,
             key,
-            config,
+            config.current_page(),
             complete_state,
         )
 
@@ -2989,11 +3004,11 @@ def update_all_dials(
 def update_dial_lcd(
     deck: StreamDeck,
     key: int,
-    config: Config,
+    page: Page,
     complete_state: StateDict,
 ) -> None:
     """Update the Dial's LCD."""
-    dial = config.dial(key)
+    dial = page.dials[key]
     if not dial:
         return
 
@@ -3240,7 +3255,7 @@ async def handle_dial_event(
         dial.update_on_physical_turn(value)  # Increment state
 
     if local_update:
-        update_dial_lcd(deck, key, config, complete_state)
+        update_dial_lcd(deck, key, config.current_page(), complete_state)
         return
 
     if config_item.service:
@@ -3272,7 +3287,7 @@ async def handle_dial_event(
             config_item.target,
         )
         console.log(f"Forcing LCD update for dial {dial.entity_id} after service call")
-        update_dial_lcd(deck, key, config, complete_state)
+        update_dial_lcd(deck, key, config.current_page(), complete_state)
 
 
 def _on_dial_event_callback(
