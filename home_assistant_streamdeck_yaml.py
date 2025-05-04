@@ -3233,7 +3233,7 @@ async def handle_dial_event(
 
     config_item = dial.turn if event_type == DialEventType.TURN else dial.push
     key = next(k for k, d in enumerate(config.current_page().dials) if d == dial)
-    if not config_item or (event_type == DialEventType.PUSH):
+    if not config_item:
         return
 
     if event_type == DialEventType.TURN and value != 0:  # Skip value=0 to avoid resets
@@ -3265,9 +3265,6 @@ async def handle_dial_event(
         if "entity_id" not in service_data and dial.entity_id:
             service_data["entity_id"] = dial.entity_id
 
-        console.log(
-            f"Calling service {config_item.service} with data {service_data} for dial {dial.entity_id}",
-        )
         await call_service(
             websocket,
             config_item.service,
