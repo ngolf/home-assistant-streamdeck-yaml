@@ -2968,10 +2968,9 @@ def update_all_dials(
     # Track configured dial keys
     configured_keys: set[int] = set()
 
-    # Update configured dials
-    config.current_page().update_all_dials_with_ha_state(complete_state, deck)
     for key, current_dial in enumerate(config.current_page().dials):
         assert current_dial is not None
+        current_dial.sync_with_ha_state(complete_state)
         if current_dial.entity_id is None:
             console.log(f"Dial {key} has no entity_id, skipping")
             continue
