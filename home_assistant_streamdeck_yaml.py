@@ -259,7 +259,7 @@ class _ButtonDialBase(BaseModel, extra="forbid"):  # type: ignore[call-arg]
     icon_mdi: str | None = Field(
         default=None,
         allow_template=True,
-        description="Material Design Icon to display."
+        description="The Material Design Icon to display on the button."
         " If empty, no icon is displayed."
         " See https://mdi.bessarabov.com/ for a list of icons."
         " The SVG icon will be downloaded and cached.",
@@ -1330,22 +1330,6 @@ class Page(BaseModel):
 
     _parent_page_index: int = PrivateAttr([])
     _dials_sorted: list[Dial] = PrivateAttr([])
-
-    def update_all_dials_with_ha_state(
-        self,
-        complete_state: StateDict,
-        deck: StreamDeck,
-    ) -> None:
-        """Updates the dial values with the Home Assistant state."""
-        for key, dial in enumerate(self.dials):
-            if dial.sync_with_ha_state(complete_state):
-                console.log(f"Dial {key} state updated, refreshing LCD")
-                update_dial_lcd(
-                    deck,
-                    key,
-                    self,
-                    complete_state,
-                )
 
     def update_all_dials_with_ha_state_change(
         self,
