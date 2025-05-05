@@ -100,6 +100,6 @@
     source: KEF LS50
   icon: spotify.png
   service: script.start_spotify
-- !include {file: includes/climate_button.yaml, vars: {entity_id: climate.living_room_desk_ac, room: Living, name: Living\nclimate}}
+- !include {file: climate_button.yaml, vars: {entity_id: climate.living_room_desk_ac, room: Living, name: Living\nclimate}}
 - special_type: previous-page
 - special_type: next-page
