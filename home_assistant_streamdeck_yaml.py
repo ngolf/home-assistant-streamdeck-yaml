@@ -4050,7 +4050,6 @@ async def run(
     connection_page = Page.connection_page(deck)
     connection_page_opened_by_self = False
     inactivity_state = InactivityState()
-    deck.set_brightness(config.brightness)
     while retry_attempts == math.inf or attempt <= retry_attempts:
         try:
             async with setup_ws(
