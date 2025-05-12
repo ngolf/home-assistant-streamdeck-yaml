@@ -1,4 +1,6 @@
 brightness: 100
+brightness_template: >
+  {{states('input_number.master_bed_streamdeck_brightness') | int }}
 auto_reload: true
 state_entity_id: input_boolean.streamdeck
 long_press_duration: 0.5

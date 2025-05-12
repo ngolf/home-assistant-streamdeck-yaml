@@ -42,9 +42,11 @@ from home_assistant_streamdeck_yaml import (
     _render_jinja,
     _states,
     _to_filename,
+    _update_state,
     _url_to_filename,
     get_states,
     run,
+    set_deck_brightness,
     setup_ws,
     update_all_key_images,
     update_key_image,
@@ -1454,3 +1456,45 @@ async def test_run_exits_immediately_on_zero_retries(mock_deck: Mock) -> None:
         )
         # If setup_ws is called once, it means the retry logic did not retry
         assert mock_get_deck.called
+
+
+def test_config_brightness(mock_deck: Mock) -> None:
+    """Test config brightness."""
+    default_brightness = 100
+    template_brightness = 50
+    update_brightness = 75
+    config = Config(
+        pages=[Page(name="home", buttons=[Button()])],
+        brightness=default_brightness,
+        brightness_template="{{states('input_number.brightness')}}",
+    )
+    bad_config = Config(
+        pages=[Page(name="home", buttons=[Button()])],
+        brightness=default_brightness,
+        brightness_template="{{some-messed-up-template}}",
+    )
+    complete_state = {
+        "input_number.brightness": {"state": template_brightness},
+    }
+    state_update = {
+        "type": "event",
+        "event": {
+            "event_type": "state_changed",
+            "data": {
+                "entity_id": "input_number.brightness",
+                "old_state": {},
+                "new_state": {"state": update_brightness},
+            },
+        },
+    }
+    assert config.brightness() == default_brightness
+    assert config.brightness(complete_state) == template_brightness
+    assert bad_config.brightness() == default_brightness  # Returns default and doesn't raise.
+    assert (
+        bad_config.brightness(complete_state) == default_brightness
+    )  # Returns default and doesn't raise.
+
+    set_deck_brightness(mock_deck, config, complete_state)
+    mock_deck.set_brightness.assert_called_with(template_brightness)
+    _update_state(complete_state, state_update, config, mock_deck)
+    mock_deck.set_brightness.assert_called_with(update_brightness)
