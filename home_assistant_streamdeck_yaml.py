@@ -836,9 +836,15 @@ class Config(BaseModel):
         description="The entity ID to sync display state with. For"
         " example `input_boolean.streamdeck` or `binary_sensor.anyone_home`.",
     )
-    brightness: int = Field(
+    default_brightness: int = Field(
+        alias="brightness",  # For backward compatibility
         default=100,
         description="The default brightness of the Stream Deck (0-100).",
+    )
+    brightness_template: str | None = Field(
+        default=None,
+        allow_template=True,
+        description="A template to set the brightness of the Stream Deck.",
     )
     auto_reload: bool = Field(
         default=False,
@@ -851,6 +857,18 @@ class Config(BaseModel):
     _detached_page: Page | None = PrivateAttr(default=None)
     _configuration_file: Path | None = PrivateAttr(default=None)
     _include_files: list[Path] = PrivateAttr(default_factory=list)
+
+    def brightness(self, complete_state: StateDict | None = None) -> int:
+        """Return the desired brightness of the Stream Deck."""
+        if complete_state is not None and self.brightness_template is not None:
+            try:
+                return int(_render_jinja(self.brightness_template, complete_state))
+            except (ValueError, TypeError, jinja2.exceptions.TemplateError) as e:
+                console.log(
+                    f"Error rendering brightness template: {e=} {self.brightness_template=}. Using default ({self.default_brightness}).",
+                )
+                return self.default_brightness
+        return self.default_brightness
 
     @classmethod
     def load(
@@ -1401,6 +1419,7 @@ async def handle_changes(
                 try:
                     config.reload()
                     deck.reset()
+                    set_deck_brightness(deck, config, complete_state)
                     update_all_key_images(deck, config, complete_state)
                     update_all_dials(deck, config, complete_state)
                 except Exception as e:  # noqa: BLE001
@@ -1441,6 +1460,9 @@ def _update_state(
             event_data = event_data["data"]
             eid = event_data["entity_id"]
             complete_state[eid] = event_data["new_state"]
+
+            # Update the brightness of the Stream Deck
+            set_deck_brightness(deck, config, complete_state)
 
             # Handle the state entity (turning on/off display)
             if eid == config.state_entity_id:
@@ -1988,7 +2010,7 @@ def turn_on(config: Config, deck: StreamDeck, complete_state: StateDict) -> None
     config._is_on = True
     update_all_key_images(deck, config, complete_state)
     update_all_dials(deck, config, complete_state)
-    deck.set_brightness(config.brightness)
+    set_deck_brightness(deck, config, complete_state)
 
 
 def turn_off(config: Config, deck: StreamDeck) -> None:
@@ -2213,6 +2235,7 @@ async def _handle_key_press(  # noqa: PLR0912
 
     def update_all() -> None:
         config.current_page().sort_dials()
+        set_deck_brightness(deck, config, complete_state)
         update_all_key_images(deck, config, complete_state)
         update_all_dials(deck, config, complete_state)
 
@@ -2520,6 +2543,12 @@ def update_all_key_images(
         )
 
 
+def set_deck_brightness(deck: StreamDeck, config: Config, complete_state: StateDict | None) -> None:
+    """Update the brightness of the Stream Deck."""
+    brightness = config.brightness(complete_state)
+    deck.set_brightness(brightness)
+
+
 async def run(
     host: str,
     token: str,
@@ -2534,7 +2563,7 @@ async def run(
         try:
             complete_state = await get_states(websocket)
 
-            deck.set_brightness(config.brightness)
+            set_deck_brightness(deck, config, complete_state)
             # Turn on state entity boolean on home assistant
             await _sync_input_boolean(config.state_entity_id, websocket, "on")
             update_all_key_images(deck, config, complete_state)
@@ -2550,7 +2579,11 @@ async def run(
                 deck.set_touchscreen_callback_async(
                     _on_touchscreen_event_callback(websocket, complete_state, config),
                 )
-            deck.set_brightness(config.brightness)
+            set_deck_brightness(
+                deck,
+                config,
+                complete_state,
+            )  # TODO: Check if this is needed as set further up.
             await subscribe_state_changes(websocket)
             await handle_changes(websocket, complete_state, deck, config)
         finally:
