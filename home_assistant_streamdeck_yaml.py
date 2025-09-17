@@ -573,6 +573,10 @@ class Button(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
         )
         return button, image
 
+    def has_long_press_configured(self) -> bool:
+        """Return True if the dial has a long press configured."""
+        return self.long_press is not None
+
 
 class Dial(_ButtonDialBase, extra="forbid"):  # type: ignore[call-arg]
     """Dial configuration."""
@@ -1035,11 +1039,11 @@ class Config(BaseModel):
 
     def to_page(self, page: int | str) -> Page:
         """Go to a page based on the page name or index."""
+        self.close_detached_page()
         if isinstance(page, int):
             self._parent_page_index = self._current_page_index
             self._current_page_index = page
             return self.current_page()
-
         for i, p in enumerate(self.pages):
             if p.name == page:
                 self._current_page_index = i
@@ -2352,7 +2356,7 @@ def _on_press_callback(
     complete_state: StateDict,
     config: Config,
 ) -> Callable[[StreamDeck, int, bool], Coroutine[StreamDeck, int, None]]:
-    press_start_times: dict[int, float] = {}
+    buttons_pressed: dict[int, Button] = {}  # Store button at press time
 
     async def key_change_callback(
         deck: StreamDeck,
@@ -2361,13 +2365,55 @@ def _on_press_callback(
     ) -> None:
         console.log(f"Key {key} {'pressed' if key_pressed else 'released'}")
 
-        button = config.button(key)
-        assert button is not None
-        if key_pressed:
-            press_start_times[key] = time.time()
-            console.log(
-                f"Key {key} pressed, starting long press monitor with threshold {config.long_press_duration}s",
+        async def handle_release(key: int, *, is_long_press: bool = False) -> None:
+            try:
+                button = buttons_pressed.pop(key)
+            except KeyError:
+                # Button was already released, will happen when:
+                # This is a physical release, and the long-press-triggered action already happened.
+                # This was called from the long press action, but the button was already released and short press action executed.
+                # In either case, nothing needs to be done.
+                return
+            cb = ft.partial(
+                _try_handle_key_press,
+                websocket=websocket,
+                complete_state=complete_state,
+                config=config,
+                button=button,
+                deck=deck,
+                is_long_press=is_long_press,
             )
+            update_key_image(
+                deck,
+                key=key,
+                config=config,
+                complete_state=complete_state,
+                key_pressed=False,
+            )
+            if is_long_press:
+                console.log(f"Executing long press action for key {key}")
+                await cb()
+            else:
+                console.log(f"Executing short press action for key {key}")
+                if button.maybe_start_or_cancel_timer(cb):
+                    console.log(f"Timer started for key {key}, delaying short press")
+                else:
+                    await cb()
+
+        def schedule_release_for_long_press() -> None:
+            console.log(f"Scheduling long press release for key {key}")
+            asyncio.get_event_loop().call_later(
+                config.long_press_duration,
+                lambda: asyncio.create_task(
+                    handle_release(key, is_long_press=True),
+                ),
+            )
+
+        if key_pressed and config.button(key):
+            # Key pressed
+            button = config.button(key)
+            assert button is not None
+            buttons_pressed[key] = button
             update_key_image(
                 deck,
                 key=key,
@@ -2375,36 +2421,16 @@ def _on_press_callback(
                 complete_state=complete_state,
                 key_pressed=True,
             )
+            if (
+                button.has_long_press_configured()
+                and config.long_press_duration > 0
+                and not button.maybe_start_or_cancel_timer()
+            ):
+                schedule_release_for_long_press()
             return
 
-        # Key released
-        press_duration = time.time() - press_start_times.pop(key)
-        console.log(f"Key {key} released after {press_duration:.2f}s")
-        update_key_image(
-            deck,
-            key=key,
-            config=config,
-            complete_state=complete_state,
-            key_pressed=False,
-        )
-        cb = ft.partial(
-            _try_handle_key_press,
-            websocket=websocket,
-            complete_state=complete_state,
-            config=config,
-            button=button,
-            deck=deck,
-            is_long_press=False,
-        )
-        if press_duration < config.long_press_duration:
-            console.log(f"Handling short press for key {key}")
-            if button.maybe_start_or_cancel_timer(cb):
-                console.log(f"Timer started for key {key}, delaying short press")
-            else:
-                await cb(is_long_press=False)
-        else:
-            console.log(f"Handling long press for key {key}")
-            await cb(is_long_press=True)
+        # Key released (physical release only)
+        await handle_release(key)
 
     return key_change_callback
 
